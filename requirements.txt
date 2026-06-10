@@ -1,0 +1,13 @@
+# Realtime dual-AI engine dependencies.
+# The orchestration core (event_bus / state_machine / speaker_scheduler /
+# speech_output_arbiter / voice_config) needs none of these — it is standard
+# library only. The packages below are only needed to run the realtime engine
+# (realtime_chat.py / fast_brain.py).
+
+websockets        # doubao SC2.0 realtime websocket transport
+openai            # OpenAI-compatible client for the fast brain (doubao ARK / DashScope)
+dashscope         # DashScope client for streaming ASR and CosyVoice TTS
+python-dotenv     # load API keys from .env
+numpy             # audio buffer math
+scipy             # audio resampling
+PyAudioWPatch     # WASAPI audio I/O (Windows)
