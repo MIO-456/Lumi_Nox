@@ -108,14 +108,16 @@ cp .env.example .env     # then fill in your doubao / DashScope keys
 
 ### What you need to bring
 
-This repo is the framework, not a turnkey product. To run the full system you
-supply the parts that are yours to choose:
+This repo is the **open-core** of a system that runs a live show every day — the
+architecture and engineering are here to read and build on, not a turnkey product.
+Running the full thing needs the pieces below: some are yours to bring, some are
+intentionally kept closed.
 
 - **API keys** (only to run the live voice — the `main.py` demo needs none). The
   LLM brain takes any **OpenAI-compatible** endpoint (doubao ARK, DashScope,
   OpenAI, …). The realtime speech-to-speech voice currently uses **doubao SC2.0**
-  and the streaming TTS/ASR use **DashScope** (CosyVoice / fun-asr); making these
-  provider-agnostic is on the roadmap. Put your keys in `.env`.
+  and the streaming TTS/ASR use **DashScope** (CosyVoice / fun-asr). Put your keys
+  in `.env`.
 - **A Live2D model** — the avatar / motion / expression layer is tied to specific
   character models and is **not** included; bring your own and wire it in.
 - **The game** — the game bridge talks to a commercial game over TCP; you supply
@@ -128,10 +130,11 @@ in the production system and are opened incrementally (see Roadmap).
 
 ## Roadmap
 
-Pluggable interfaces for LLM / TTS / ASR so you can drop in your own → more game
-adapters → a fuller text-only demo loop.
+This is an open window into a real, running system — not a product roadmap. More of
+it opens over time as the daily stream evolves: more game bots (Wordle, Handle, …)
+and other subsystems, as time allows.
 
 ## License & open-core
 
-[MIT](LICENSE). The framework is open; the characters' persona, IP and worldview
-are not.
+[MIT](LICENSE). Open-core: the engine, games and architecture are here to read and
+build on; the characters' persona, IP, worldview and operations data are not.
