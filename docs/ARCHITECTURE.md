@@ -49,7 +49,7 @@ arbiter**. Everything is coordinated over an **event bus** anchored to a global
 | Voice out | `lumi_tts.py`, `cosyvoice_tts.py`, `tts_emitter.py` | Streaming TTS with voice-cloned timbres; chooses the output path per run architecture. |
 | Voice in | `lumi_asr.py` | Streaming speech recognition. |
 | Memory | `memory/` | Per-viewer and self memory in SQLite, distilled by an LLM extractor/summarizer. |
-| Game | `buckshot_bot.py`, `buckshot_bridge.py`, `buckshot_prompt_context.py` | A game segment: the AIs make decisions and call tools over a TCP bridge while narrating. |
+| Games | `buckshot_*.py`, `terraria_*.py` | Game segments the AIs play over a TCP bridge while narrating. Buckshot Roulette (turn-based) and Terraria (A* pathfinding + a five-layer goal planner driving a tModLoader mod; see `terraria-behavior-tree.md`). |
 | Per-character config | `voice_config.py` | Voice, avatar model, subtitle, audio routing (placeholder example characters). |
 
 ## Configuration and credentials
@@ -61,15 +61,16 @@ with placeholder values. All API keys are read from environment variables (see
 ## What's here, and what's not
 
 This repository contains the orchestration core, the realtime dual-AI engine, the
-voice (TTS) and hearing (ASR) layers, long-term memory, and one game as a showcase.
+voice (TTS) and hearing (ASR) layers, long-term memory, and two games as a
+showcase (Buckshot Roulette and Terraria).
 
 Intentionally **not** included:
 
 - The characters' persona prompts, IP and worldview (the closed "soul").
 - The Live2D avatar / motion / expression layer — tied to specific character models.
 - The commercial game binaries the game bridge talks to.
-- The other game bots, vision, drawing, and the live director / control console —
-  opened incrementally over time.
+- More game bots (Kingdom Rush, Wordle, …), vision, drawing, and the live
+  director / control console — opened incrementally over time.
 
 ## Open-core
 

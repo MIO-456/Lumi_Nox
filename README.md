@@ -48,9 +48,11 @@ files below.
 - **Hearing** (`lumi_asr.py`) — streaming speech recognition for live voice input.
 - **Long-term memory** (`memory/`) — per-viewer and self memory in SQLite, distilled
   by an LLM, so the characters recognize regulars and stay consistent across streams.
-- **Playing games** (`buckshot_bot.py`, `buckshot_bridge.py`) — a bridge that lets
-  the AIs play a game (Buckshot Roulette) as a stream segment, making decisions and
-  calling tools while they narrate.
+- **Playing games** (`buckshot_*.py`, `terraria_*.py`) — bridges that let the AIs
+  play games as stream segments, making decisions and calling tools while they
+  narrate. **Buckshot Roulette** (turn-based decisions over a TCP bridge) and
+  **Terraria** — a full action/sandbox bot with **A\* pathfinding** and a
+  **five-layer goal planner** driving a tModLoader mod.
 - **Fast brain** (`fast_brain.py`) — a per-character lightweight LLM for tool-driven
   decisions alongside the realtime voice chat.
 - **Coordination backbone** (`event_bus.py`, `state_machine.py`) — every module talks
@@ -76,10 +78,13 @@ cosyvoice_tts.py           # CosyVoice voice-cloned synthesizer
 tts_emitter.py             # picks the voice output path per run architecture
 lumi_asr.py                # streaming speech recognition
 memory/                    # long-term per-viewer & self memory (SQLite + LLM extraction)
-buckshot_bot.py            # game decision engine
+buckshot_bot.py            # Buckshot Roulette: decision engine
 buckshot_bridge.py         # TCP bridge to the game
 buckshot_prompt_context.py # game state -> prompt context
+terraria_bot.py            # Terraria bot: A* pathfinding + five-layer goal planning
+terraria_bridge.py         # TCP bridge to a tModLoader mod
 docs/ARCHITECTURE.md       # full design
+docs/terraria-behavior-tree.md  # the Terraria bot's atomic-behavior architecture
 ```
 
 ## Getting started

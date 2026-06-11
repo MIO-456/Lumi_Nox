@@ -11,3 +11,4 @@ python-dotenv     # load API keys from .env
 numpy             # audio buffer math
 scipy             # audio resampling
 PyAudioWPatch     # WASAPI audio I/O (Windows)
+requests          # HTTP (game bridges)
