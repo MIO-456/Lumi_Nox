@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 
-def load_env(env_path="D:/AI_Streamer/.env"):
+def load_env(env_path=".env"):
     env = {}
     path = Path(env_path)
     if not path.exists():

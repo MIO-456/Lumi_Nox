@@ -612,7 +612,7 @@ def run_subtitle_ws_server(port: int = 8767):
         overlay_dir = os.path.join(os.path.dirname(__file__), "overlay")
         # 美术素材/ 被 .gitignore 忽略 —— main 仓库下有，worktree 切出来时没有。
         # 优先用本地（main 直接命中），找不到时上溯到 main 仓库（worktree 上溯两级
-        # 到 D:\AI_Streamer\）。这样 worktree 跑直播也能拿到 mio_block 等叠层的图片。
+        # 到项目根目录）。这样 worktree 跑直播也能拿到叠层图片。
         _local_assets = os.path.join(os.path.dirname(__file__), "美术素材")
         _parent_assets = os.path.normpath(
             os.path.join(os.path.dirname(__file__), "..", "..", "美术素材")
