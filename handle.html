@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>成语猜猜 - Lumi AI</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+    background: transparent;
+    color: #2b2b2b;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    user-select: none;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+
+  body.overlay-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  #game-panel {
+    background: transparent;
+    border-radius: 16px;
+    padding: 20px 32px 24px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 24px;
+  }
+
+  #main-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  #rules {
+    width: 130px;
+    text-align: left;
+    color: #555;
+    font-size: 13px;
+    line-height: 1.8;
+  }
+  #rules .legend-item { margin: 6px 0; }
+  #rules .legend-dot {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 2px;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+  #rules .legend-dot.green  { background: #538d4e; }
+  #rules .legend-dot.yellow { background: #b59f3b; }
+  #rules .legend-dot.gray   { background: #585a5c; }
+
+  header {
+    width: 100%;
+    max-width: 500px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-bottom: 1px solid #4a4a4c;
+    padding: 10px 0;
+  }
+
+  header h1 {
+    font-family: "KeinannMaruPOP", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 6px;
+  }
+
+  #message {
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  #message.show { opacity: 1; }
+
+  /* --- Board --- */
+  #board {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 6px 0 12px;
+  }
+
+  .row {
+    display: flex;
+    gap: 4px;
+  }
+
+  /* --- Cell: 汉字 + 拼音反馈 --- */
+  .cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .tile {
+    width: 72px;
+    height: 72px;
+    border: 2px solid #787c7e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    font-weight: 700;
+    transition: border-color 0.1s;
+  }
+
+  .tile.filled { border-color: #3a3a3c; }
+  .tile.revealed { animation: flip 0.5s ease forwards; }
+  .tile.correct  { background: #538d4e; border-color: #538d4e; color: #fff; }
+  .tile.present  { background: #b59f3b; border-color: #b59f3b; color: #fff; }
+  .tile.absent   { background: #585a5c; border-color: #585a5c; color: #fff; }
+
+  /* --- 拼音反馈条 (声母/韵母/声调) --- */
+  .pinyin-bar {
+    display: flex;
+    gap: 2px;
+    width: 72px;
+    height: 18px;
+  }
+
+  .py-cell {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+    background: #1a1a1b;
+    border-radius: 2px;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .py-cell.show { opacity: 1; }
+  .py-cell.correct { background: #538d4e; }
+  .py-cell.present { background: #b59f3b; }
+  .py-cell.absent  { background: #585a5c; }
+
+  @keyframes flip {
+    0%   { transform: rotateX(0deg); }
+    45%  { transform: rotateX(90deg); }
+    55%  { transform: rotateX(90deg); }
+    100% { transform: rotateX(0deg); }
+  }
+
+  @keyframes pop {
+    0%   { transform: scale(1); }
+    50%  { transform: scale(1.08); }
+    100% { transform: scale(1); }
+  }
+
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-4px); }
+    40%, 80% { transform: translateX(4px); }
+  }
+
+  /* --- Stats overlay --- */
+  #overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: transparent;
+    z-index: 10;
+    align-items: center;
+    justify-content: center;
+  }
+  #overlay.show { display: flex; }
+
+  #stats-box {
+    /* 胜负弹窗单独的浅色卡片背景，配浅粉直播底色，深色字清晰不叠字 */
+    background: rgba(255, 249, 251, 0.97);
+    border-radius: 14px;
+    padding: 24px 40px;
+    text-align: center;
+    min-width: 280px;
+    border: 2px solid #ecc2d2;
+    box-shadow: 0 8px 28px rgba(170, 120, 145, 0.35);
+  }
+  #stats-box h2 { margin-bottom: 12px; font-size: 20px; color: #2b2b2b; }
+  #stats-box .answer { font-size: 32px; letter-spacing: 8px; color: #3a7d36; margin: 8px 0 16px; }
+  #stats-box .info { color: #555; font-size: 14px; margin-bottom: 8px; }
+
+  #new-game-btn {
+    padding: 10px 28px;
+    background: #538d4e;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 12px;
+  }
+  #new-game-btn:hover { background: #6aaf5f; }
+</style>
+</head>
+<body>
+
+<div id="game-panel">
+<div id="rules">
+  <div style="font-size:14px;font-weight:600;color:#333;margin-bottom:8px;">规则</div>
+  <div style="color:#555;font-size:12px;margin-bottom:10px;">猜四字成语<br>共6次机会</div>
+  <div class="legend-item"><span class="legend-dot green"></span><span style="color:#3a7d36;font-weight:bold">绿</span> 正确</div>
+  <div class="legend-item"><span class="legend-dot yellow"></span><span style="color:#9a8420;font-weight:bold">黄</span> 有但位置错</div>
+  <div class="legend-item"><span class="legend-dot gray"></span><span style="color:#555;font-weight:bold">灰</span> 不存在</div>
+  <div style="margin-top:10px;color:#555;font-size:11px;">汉字·声母·韵母<br>三维独立判定</div>
+</div>
+<div id="main-col">
+  <header><h1>成语猜猜</h1></header>
+  <div id="message"></div>
+  <div id="board"></div>
+</div>
+</div>
+
+<div id="overlay">
+  <div id="stats-box">
+    <h2 id="result-title">结果</h2>
+    <div class="answer" id="result-answer"></div>
+    <div class="info" id="result-info"></div>
+    <button id="new-game-btn" onclick="newGame()">下一局</button>
+  </div>
+</div>
+
+<script>
+// ─── 配置 ───
+const WORD_LEN = 4;
+const MAX_ROWS = 6;
+
+// ─── 状态 ───
+let IDIOM_LIST = [];
+let answer = "";          // 答案成语文本
+let answerPinyin = [];    // 答案拼音 [{initial, final, tone}, ...]
+let currentRow = 0;
+let gameOver = false;
+
+function setOverlayVisible(visible) {
+  document.body.classList.toggle("overlay-visible", !!visible);
+}
+
+// ─── Playwright API ───
+window.WORDLE_API = {
+  setWordLists(idioms) {
+    // idioms: [{word, pinyin: "feng1 hua1 xue3 yue4"}, ...]
+    IDIOM_LIST = idioms;
+  },
+
+  newGameWithAnswer(word, pinyinArr) {
+    // word: "风花雪月"
+    // pinyinArr: [{initial:"f", final:"eng", tone:1}, ...]
+    answer = word;
+    answerPinyin = pinyinArr;
+    resetBoard();
+    setOverlayVisible(true);
+  },
+
+  async submitGuess(word, guessPinyin) {
+    setOverlayVisible(true);
+    // word: "龙飞凤舞"
+    // guessPinyin: [{initial, final, tone}, ...]
+    // 填入字符
+    for (let i = 0; i < WORD_LEN; i++) {
+      const tile = document.getElementById(`tile-${currentRow}-${i}`);
+      tile.textContent = word[i];
+      tile.className = "tile filled";
+    }
+    await sleep(100);
+
+    // 计算四维反馈
+    const feedback = computeFeedback(
+      word, guessPinyin,
+      answer, answerPinyin
+    );
+
+    // 动画揭示
+    for (let c = 0; c < WORD_LEN; c++) {
+      const tile = document.getElementById(`tile-${currentRow}-${c}`);
+      const fb = feedback[c];
+      const charState = ["absent", "present", "correct"][fb.char];
+
+      await sleep(300);
+      tile.classList.add("revealed");
+      await sleep(250);
+      tile.classList.add(charState);
+      tile.dataset.state = charState;
+
+      // 拼音反馈
+      const pyBar = document.getElementById(`py-${currentRow}-${c}`);
+      const cells = pyBar.children;
+      const dims = ["initial", "final"];
+      const labels = [guessPinyin[c].initial || "-", guessPinyin[c].final];
+      for (let d = 0; d < 2; d++) {
+        const state = ["absent", "present", "correct"][fb[dims[d]]];
+        cells[d].textContent = labels[d];
+        cells[d].className = "py-cell show " + state;
+      }
+    }
+
+    await sleep(300);
+
+    const isWin = feedback.every(f => f.char === 2);
+    const isFinal = currentRow === MAX_ROWS - 1;
+
+    if (isWin) {
+      gameOver = true;
+      showResult(true);
+    } else if (isFinal) {
+      gameOver = true;
+      showResult(false);
+    }
+
+    currentRow++;
+
+    return {
+      currentRow,
+      gameOver,
+      solved: isWin,
+      feedback
+    };
+  },
+
+  getState() {
+    return { currentRow, gameOver, answer: gameOver ? answer : undefined };
+  }
+};
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ─── 四维反馈计算 ───
+function matchDimension(guessVals, answerVals) {
+  const n = guessVals.length;
+  const result = new Array(n).fill(0);
+  const pool = [...answerVals];
+
+  // Pass 1: exact
+  for (let i = 0; i < n; i++) {
+    if (guessVals[i] === pool[i]) {
+      result[i] = 2;
+      pool[i] = null;
+    }
+  }
+  // Pass 2: misplaced
+  for (let i = 0; i < n; i++) {
+    if (result[i] === 0 && guessVals[i] != null) {
+      const idx = pool.indexOf(guessVals[i]);
+      if (idx !== -1) {
+        result[i] = 1;
+        pool[idx] = null;
+      }
+    }
+  }
+  return result;
+}
+
+function computeFeedback(guessWord, guessPy, ansWord, ansPy) {
+  const gChars = [...guessWord];
+  const aChars = [...ansWord];
+  const charMatch = matchDimension(gChars, aChars);
+
+  const gInit = guessPy.map(p => p.initial);
+  const aInit = ansPy.map(p => p.initial);
+  const initMatch = matchDimension(gInit, aInit);
+
+  const gFinal = guessPy.map(p => p.final);
+  const aFinal = ansPy.map(p => p.final);
+  const finalMatch = matchDimension(gFinal, aFinal);
+
+  const result = [];
+  for (let i = 0; i < WORD_LEN; i++) {
+    result.push({
+      char: charMatch[i],
+      initial: initMatch[i],
+      final: finalMatch[i],
+    });
+  }
+  return result;
+}
+
+// ─── Board ───
+function createBoard() {
+  const board = document.getElementById("board");
+  board.innerHTML = "";
+  for (let r = 0; r < MAX_ROWS; r++) {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.id = `row-${r}`;
+    for (let c = 0; c < WORD_LEN; c++) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+
+      const tile = document.createElement("div");
+      tile.className = "tile";
+      tile.id = `tile-${r}-${c}`;
+      tile.dataset.state = "empty";
+      cell.appendChild(tile);
+
+      // 拼音反馈条
+      const pyBar = document.createElement("div");
+      pyBar.className = "pinyin-bar";
+      pyBar.id = `py-${r}-${c}`;
+      for (let d = 0; d < 2; d++) {
+        const pyCell = document.createElement("div");
+        pyCell.className = "py-cell";
+        pyBar.appendChild(pyCell);
+      }
+      cell.appendChild(pyBar);
+
+      row.appendChild(cell);
+    }
+    board.appendChild(row);
+  }
+}
+
+function resetBoard() {
+  currentRow = 0;
+  gameOver = false;
+  document.getElementById("overlay").classList.remove("show");
+  createBoard();
+}
+
+// ─── UI helpers ───
+function showMessage(text) {
+  const el = document.getElementById("message");
+  el.textContent = text;
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 1500);
+}
+
+function showResult(won) {
+  const turns = currentRow + 1;
+  document.getElementById("result-title").textContent = won ? "太厉害了！" : "下次加油";
+  document.getElementById("result-answer").textContent = answer;
+  document.getElementById("result-info").textContent = won
+    ? `${turns} 次猜出`
+    : "答案是：";
+  setTimeout(() => document.getElementById("overlay").classList.add("show"), 500);
+}
+
+function newGame() {
+  if (IDIOM_LIST.length > 0) {
+    const pick = IDIOM_LIST[Math.floor(Math.random() * IDIOM_LIST.length)];
+    answer = pick.word;
+    // answerPinyin would need to be set by bot
+  }
+  resetBoard();
+}
+
+// ─── Init ───
+createBoard();
+
+// ─── WebSocket 远程控制（供 bridge 通过 WS 调用 WORDLE_API）───
+(function() {
+  const wsUrl = 'ws://' + (location.hostname || '127.0.0.1') + ':8787/ws';
+  let ws;
+  function connect() {
+    ws = new WebSocket(wsUrl);
+    ws.onopen = () => console.log('[WS] connected');
+    ws.onclose = () => { console.log('[WS] disconnected, reconnecting...'); setOverlayVisible(false); try { resetBoard(); } catch (e) {} setTimeout(connect, 1000); };
+    ws.onerror = () => { try { ws.close(); } catch (e) {} };
+    // 命令串行化：每条 ws 命令排进同一条 Promise 链，前一条（含 submitGuess 的逐格动画）
+    // 彻底执行完再处理下一条。否则 newGame/submit/连接时状态重放几个异步流程会并发踩同一组
+    // 全局光标(currentRow)，把第一行渲染冲乱（和 Wordle 同款 bug）。
+    let _rpcChain = Promise.resolve();
+    ws.onmessage = (event) => {
+      _rpcChain = _rpcChain.then(async () => {
+        let msg, result;
+        try {
+          msg = JSON.parse(event.data);
+          const api = window.WORDLE_API;
+          switch (msg.method) {
+            case 'newGameWithAnswer': result = api.newGameWithAnswer(msg.args[0], msg.args[1]); break;
+            case 'submitGuess':       result = await api.submitGuess(msg.args[0], msg.args[1]); break;
+            case 'getState':          result = api.getState(); break;
+            case 'eval':              result = eval(msg.args[0]); break;
+            default: result = {error: 'unknown method'};
+          }
+        } catch (e) { result = {error: e && e.message}; }
+        try { ws.send(JSON.stringify({id: msg && msg.id, result: result})); } catch (e) {}
+      }).catch(() => {});
+    };
+  }
+  if (location.protocol !== 'file:') connect();
+})();
+</script>
+</body>
+</html>

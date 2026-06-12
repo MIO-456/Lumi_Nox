@@ -12,3 +12,4 @@ numpy             # audio buffer math
 scipy             # audio resampling
 PyAudioWPatch     # WASAPI audio I/O (Windows)
 requests          # HTTP (game bridges)
+aiohttp           # web server for the Wordle / Handle game frontends

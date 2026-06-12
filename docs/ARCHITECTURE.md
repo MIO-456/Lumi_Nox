@@ -49,7 +49,7 @@ arbiter**. Everything is coordinated over an **event bus** anchored to a global
 | Voice out | `lumi_tts.py`, `cosyvoice_tts.py`, `tts_emitter.py` | Streaming TTS with voice-cloned timbres; chooses the output path per run architecture. |
 | Voice in | `lumi_asr.py` | Streaming speech recognition. |
 | Memory | `memory/` | Per-viewer and self memory in SQLite, distilled by an LLM extractor/summarizer. |
-| Games | `buckshot_*.py`, `terraria_*.py`, `kingdom_rush_*.py` | Game segments the AIs play over a TCP bridge while narrating. Buckshot Roulette (turn-based), Terraria (A* pathfinding + five-layer goal planner over a tModLoader mod; see `terraria-behavior-tree.md`), and Kingdom Rush (tower-defense AI via a LuaJIT mod reverse-engineered into the game's LÖVE engine; see `kingdom-rush-reverse-engineering.md`). |
+| Games | `buckshot_*.py`, `terraria_*.py`, `kingdom_rush_*.py`, `wordle_*.py`, `handle_*.py` | Game segments the AIs play over a bridge while narrating. Buckshot Roulette (turn-based), Terraria (A* pathfinding + five-layer goal planner over a tModLoader mod; see `terraria-behavior-tree.md`), Kingdom Rush (tower-defense AI via a LuaJIT mod reverse-engineered into the game's LÖVE engine; see `kingdom-rush-reverse-engineering.md`), and two word games — Wordle and Handle (汉兜, a Chinese-idiom Wordle), each a self-contained web frontend + solver. |
 | Per-character config | `voice_config.py` | Voice, avatar model, subtitle, audio routing (placeholder example characters). |
 
 ## Configuration and credentials
@@ -61,15 +61,15 @@ with placeholder values. All API keys are read from environment variables (see
 ## What's here, and what's not
 
 This repository contains the orchestration core, the realtime dual-AI engine, the
-voice (TTS) and hearing (ASR) layers, long-term memory, and three games as a
-showcase (Buckshot Roulette, Terraria, and Kingdom Rush).
+voice (TTS) and hearing (ASR) layers, long-term memory, and five games as a
+showcase (Buckshot Roulette, Terraria, Kingdom Rush, Wordle and Handle).
 
 Intentionally **not** included:
 
 - The characters' persona prompts, IP and worldview (the closed "soul").
 - The Live2D avatar / motion / expression layer — tied to specific character models.
 - The commercial game binaries the game bridge talks to.
-- More game bots (Wordle, Handle, …), vision, drawing, and the live
+- The remaining game bot (Fireboy & Watergirl), vision, drawing, and the live
   director / control console — opened incrementally over time.
 
 ## Open-core

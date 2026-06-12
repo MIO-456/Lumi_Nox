@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wordle - Lumi AI</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Clear Sans', 'Helvetica Neue', Arial, sans-serif;
+    background: transparent;
+    color: #2b2b2b;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    user-select: none;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+
+  body.overlay-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  #game-panel {
+    background: transparent;
+    border-radius: 16px;
+    padding: 20px 32px 24px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 24px;
+  }
+
+  #main-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  #rules {
+    width: 120px;
+    text-align: left;
+    color: #555;
+    font-size: 13px;
+    line-height: 1.8;
+  }
+  #rules .legend-item { margin: 6px 0; }
+  #rules .legend-dot {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 2px;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+  #rules .legend-dot.green  { background: #538d4e; }
+  #rules .legend-dot.yellow { background: #b59f3b; }
+  #rules .legend-dot.gray   { background: #585a5c; }
+
+  header {
+    width: 100%;
+    max-width: 500px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-bottom: 1px solid #4a4a4c;
+    padding: 12px 0;
+  }
+
+  header h1 {
+    font-family: "KeinannMaruPOP", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+  }
+
+  #message {
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 600;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  #message.show { opacity: 1; }
+
+  /* ─── Grid ─── */
+  #board {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin: 8px 0 20px;
+  }
+
+  .row {
+    display: flex;
+    gap: 5px;
+  }
+
+  .tile {
+    width: 62px;
+    height: 62px;
+    border: 2px solid #787c7e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    font-weight: 700;
+    text-transform: uppercase;
+    transition: border-color 0.1s;
+  }
+
+  .tile.filled {
+    border-color: #3a3a3c;
+    animation: pop 0.1s ease-in-out;
+  }
+
+  .tile.revealed {
+    animation: flip 0.5s ease forwards;
+  }
+
+  /* Colors applied after flip */
+  .tile.correct  { background: #538d4e; border-color: #538d4e; color: #fff; }
+  .tile.present  { background: #b59f3b; border-color: #b59f3b; color: #fff; }
+  .tile.absent   { background: #585a5c; border-color: #585a5c; color: #fff; }
+
+  @keyframes pop {
+    0%   { transform: scale(1); }
+    50%  { transform: scale(1.12); }
+    100% { transform: scale(1); }
+  }
+
+  @keyframes flip {
+    0%   { transform: rotateX(0deg); }
+    45%  { transform: rotateX(90deg); }
+    55%  { transform: rotateX(90deg); }
+    100% { transform: rotateX(0deg); }
+  }
+
+  /* ─── Keyboard ─── */
+  #keyboard {
+    display: none;
+  }
+
+  .kb-row {
+    display: flex;
+    justify-content: center;
+    gap: 5px;
+  }
+
+  .key {
+    height: 58px;
+    min-width: 40px;
+    padding: 0 12px;
+    border-radius: 4px;
+    background: #818384;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-transform: uppercase;
+    transition: background 0.2s;
+  }
+
+  .key.wide { min-width: 65px; font-size: 12px; }
+  .key.correct { background: #538d4e; }
+  .key.present { background: #b59f3b; }
+  .key.absent  { background: #3a3a3c; }
+
+  /* ─── Stats overlay ─── */
+  #overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: transparent;
+    z-index: 10;
+    align-items: center;
+    justify-content: center;
+  }
+  #overlay.show { display: flex; }
+
+  #stats-box {
+    /* 胜负弹窗单独的浅色卡片背景，配浅粉直播底色，深色字清晰不叠字 */
+    background: rgba(255, 249, 251, 0.97);
+    border-radius: 14px;
+    padding: 28px 44px;
+    text-align: center;
+    min-width: 300px;
+    border: 2px solid #ecc2d2;
+    box-shadow: 0 8px 28px rgba(170, 120, 145, 0.35);
+  }
+
+  #stats-box h2 { margin-bottom: 16px; font-size: 22px; color: #2b2b2b; }
+  #stats-box .answer { font-size: 28px; letter-spacing: 4px; color: #3a7d36; margin: 8px 0 20px; }
+  #stats-box .info { color: #555; font-size: 14px; margin-bottom: 8px; }
+
+  #new-game-btn {
+    padding: 12px 32px;
+    background: #538d4e;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 16px;
+  }
+  #new-game-btn:hover { background: #6aaf5f; }
+</style>
+</head>
+<body>
+
+<div id="game-panel">
+<div id="rules">
+  <div style="font-size:14px;font-weight:600;color:#333;margin-bottom:8px;">规则</div>
+  <div style="color:#555;font-size:12px;margin-bottom:10px;">猜5字母单词<br>共6次机会</div>
+  <div class="legend-item"><span class="legend-dot green"></span><span style="color:#3a7d36;font-weight:bold">绿</span> 字母位置都对</div>
+  <div class="legend-item"><span class="legend-dot yellow"></span><span style="color:#9a8420;font-weight:bold">黄</span> 字母对位置错</div>
+  <div class="legend-item"><span class="legend-dot gray"></span><span style="color:#555;font-weight:bold">灰</span> 字母不存在</div>
+</div>
+<div id="main-col">
+  <header><h1>Wordle</h1></header>
+  <div id="message"></div>
+  <div id="board"></div>
+  <div id="keyboard"></div>
+</div>
+</div>
+
+<div id="overlay">
+  <div id="stats-box">
+    <h2 id="result-title">Result</h2>
+    <div class="answer" id="result-answer"></div>
+    <div class="info" id="result-info"></div>
+    <button id="new-game-btn" onclick="newGame()">NEW GAME</button>
+  </div>
+</div>
+
+<script>
+// ─── Word list (injected by bot, or use built-in fallback) ───
+let ANSWER_LIST = [];
+let VALID_SET = new Set();
+let answer = "";
+let currentRow = 0;
+let currentCol = 0;
+let gameOver = false;
+let boardState = []; // [{letter, state}] per row
+
+function setOverlayVisible(visible) {
+  document.body.classList.toggle("overlay-visible", !!visible);
+}
+
+// ─── API for Playwright ───
+window.WORDLE_API = {
+  // Set answer word (called by bot before game starts)
+  setAnswer(word) {
+    answer = word.toLowerCase();
+  },
+  // Set word lists
+  setWordLists(answers, allValid) {
+    ANSWER_LIST = answers;
+    VALID_SET = new Set(allValid);
+  },
+  // Get current game state
+  getState() {
+    const rows = [];
+    for (let r = 0; r < 6; r++) {
+      const tiles = document.querySelectorAll(`#row-${r} .tile`);
+      const row = [];
+      tiles.forEach((t, i) => {
+        row.push({
+          letter: t.textContent || "",
+          state: t.dataset.state || "empty" // empty, filled, correct, present, absent
+        });
+      });
+      rows.push(row);
+    }
+    return {
+      currentRow,
+      gameOver,
+      solved: gameOver && currentRow > 0 && rows[currentRow - 1].every(t => t.state === "correct"),
+      answer: gameOver ? answer : undefined,
+      rows
+    };
+  },
+  // Type a word and submit (returns promise that resolves after animation)
+  async submitGuess(word) {
+    setOverlayVisible(true);
+    word = word.toLowerCase();
+    // Clear current row first
+    for (let i = currentCol; i > 0; i--) {
+      handleKey("Backspace");
+    }
+    // Type letters
+    for (const ch of word) {
+      handleKey(ch);
+      await sleep(80);
+    }
+    await sleep(100);
+    // Submit
+    handleKey("Enter");
+    // Wait for flip animation to complete
+    await sleep(1800);
+    return window.WORDLE_API.getState();
+  },
+  // Start new game with optional answer
+  newGameWithAnswer(word) {
+    answer = word ? word.toLowerCase() : pickRandomAnswer();
+    resetBoard();
+    setOverlayVisible(true);
+  }
+};
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ─── Built-in small fallback list (bot will inject full list) ───
+const FALLBACK_WORDS = [
+  "crane","adore","birth","climb","dance","earth","flame","ghost","heart","ivory",
+  "juice","knife","lemon","mouse","nurse","ocean","piano","queen","river","stone",
+  "tiger","ultra","vivid","watch","youth","zebra","angel","brave","charm","dream"
+];
+
+function pickRandomAnswer() {
+  const list = ANSWER_LIST.length > 0 ? ANSWER_LIST : FALLBACK_WORDS;
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function isValidWord(word) {
+  if (VALID_SET.size > 0) return VALID_SET.has(word);
+  return word.length === 5; // Fallback: accept any 5-letter input
+}
+
+// ─── Board setup ───
+function createBoard() {
+  const board = document.getElementById("board");
+  board.innerHTML = "";
+  for (let r = 0; r < 6; r++) {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.id = `row-${r}`;
+    for (let c = 0; c < 5; c++) {
+      const tile = document.createElement("div");
+      tile.className = "tile";
+      tile.id = `tile-${r}-${c}`;
+      tile.dataset.state = "empty";
+      row.appendChild(tile);
+    }
+    board.appendChild(row);
+  }
+}
+
+function createKeyboard() {
+  const kb = document.getElementById("keyboard");
+  kb.innerHTML = "";
+  const rows = [
+    ["q","w","e","r","t","y","u","i","o","p"],
+    ["a","s","d","f","g","h","j","k","l"],
+    ["Enter","z","x","c","v","b","n","m","Backspace"]
+  ];
+  rows.forEach(keys => {
+    const row = document.createElement("div");
+    row.className = "kb-row";
+    keys.forEach(k => {
+      const btn = document.createElement("button");
+      btn.className = "key" + (k.length > 1 ? " wide" : "");
+      btn.id = `key-${k.toLowerCase()}`;
+      btn.textContent = k === "Backspace" ? "DEL" : k;
+      btn.addEventListener("click", () => handleKey(k));
+      row.appendChild(btn);
+    });
+    kb.appendChild(row);
+  });
+}
+
+// ─── Input handling ───
+function handleKey(key) {
+  if (gameOver) return;
+
+  if (key === "Enter") {
+    submitRow();
+  } else if (key === "Backspace") {
+    if (currentCol > 0) {
+      currentCol--;
+      const tile = document.getElementById(`tile-${currentRow}-${currentCol}`);
+      tile.textContent = "";
+      tile.className = "tile";
+      tile.dataset.state = "empty";
+    }
+  } else if (/^[a-zA-Z]$/.test(key) && currentCol < 5) {
+    const tile = document.getElementById(`tile-${currentRow}-${currentCol}`);
+    tile.textContent = key.toLowerCase();
+    tile.className = "tile filled";
+    tile.dataset.state = "filled";
+    currentCol++;
+  }
+}
+
+function submitRow() {
+  if (currentCol !== 5) {
+    showMessage("Not enough letters");
+    return;
+  }
+
+  // Read current guess
+  let guess = "";
+  for (let c = 0; c < 5; c++) {
+    guess += document.getElementById(`tile-${currentRow}-${c}`).textContent;
+  }
+
+  if (!isValidWord(guess)) {
+    showMessage("Not in word list");
+    shakeRow(currentRow);
+    return;
+  }
+
+  // Compute feedback
+  const result = computePattern(guess, answer);
+
+  // Animate reveal
+  for (let c = 0; c < 5; c++) {
+    const tile = document.getElementById(`tile-${currentRow}-${c}`);
+    const state = ["absent", "present", "correct"][result[c]];
+
+    setTimeout(() => {
+      tile.classList.add("revealed");
+      // Apply color at the midpoint of flip
+      setTimeout(() => {
+        tile.classList.add(state);
+        tile.dataset.state = state;
+        // Update keyboard
+        updateKeyColor(guess[c], state);
+      }, 250);
+    }, c * 300);
+  }
+
+  const isWin = result.every(r => r === 2);
+  const isFinal = currentRow === 5;
+
+  setTimeout(() => {
+    if (isWin) {
+      gameOver = true;
+      showResult(true);
+    } else if (isFinal) {
+      gameOver = true;
+      showResult(false);
+    }
+    currentRow++;
+    currentCol = 0;
+  }, 5 * 300 + 300);
+}
+
+function computePattern(guess, ans) {
+  const result = [0, 0, 0, 0, 0];
+  const ansChars = ans.split("");
+
+  // Green pass
+  for (let i = 0; i < 5; i++) {
+    if (guess[i] === ansChars[i]) {
+      result[i] = 2;
+      ansChars[i] = null;
+    }
+  }
+  // Yellow pass
+  for (let i = 0; i < 5; i++) {
+    if (result[i] === 0) {
+      const idx = ansChars.indexOf(guess[i]);
+      if (idx !== -1) {
+        result[i] = 1;
+        ansChars[idx] = null;
+      }
+    }
+  }
+  return result;
+}
+
+function updateKeyColor(letter, state) {
+  const key = document.getElementById(`key-${letter}`);
+  if (!key) return;
+  // Priority: correct > present > absent
+  const priority = { "": 0, "absent": 1, "present": 2, "correct": 3 };
+  const current = key.classList.contains("correct") ? "correct" :
+                  key.classList.contains("present") ? "present" :
+                  key.classList.contains("absent")  ? "absent" : "";
+  if (priority[state] > priority[current]) {
+    key.classList.remove("correct", "present", "absent");
+    key.classList.add(state);
+  }
+}
+
+// ─── UI helpers ───
+function showMessage(text) {
+  const el = document.getElementById("message");
+  el.textContent = text;
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 1500);
+}
+
+function shakeRow(row) {
+  const el = document.getElementById(`row-${row}`);
+  el.style.animation = "none";
+  el.offsetHeight; // Trigger reflow
+  el.style.animation = "shake 0.3s";
+}
+
+function showResult(won) {
+  const turns = currentRow + 1;
+  document.getElementById("result-title").textContent = won ? "Excellent!" : "Better luck next time";
+  document.getElementById("result-answer").textContent = answer.toUpperCase();
+  document.getElementById("result-info").textContent = won ? `Solved in ${turns} guess${turns > 1 ? "es" : ""}` : "The answer was:";
+  setTimeout(() => document.getElementById("overlay").classList.add("show"), 500);
+}
+
+function resetBoard() {
+  currentRow = 0;
+  currentCol = 0;
+  gameOver = false;
+  document.getElementById("overlay").classList.remove("show");
+  createBoard();
+  // Reset keyboard colors
+  document.querySelectorAll(".key").forEach(k => k.classList.remove("correct", "present", "absent"));
+}
+
+function newGame() {
+  answer = pickRandomAnswer();
+  resetBoard();
+}
+
+// ─── Keyboard listener ───
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "Enter" || e.key === "Backspace") {
+    handleKey(e.key);
+  } else if (/^[a-zA-Z]$/.test(e.key)) {
+    handleKey(e.key);
+  }
+});
+
+// ─── Init ───
+createBoard();
+createKeyboard();
+answer = pickRandomAnswer();
+
+// ─── WebSocket 远程控制（供 bridge 通过 WS 调用 WORDLE_API）───
+(function() {
+  const wsUrl = 'ws://' + (location.hostname || '127.0.0.1') + ':8786/ws';
+  let ws;
+  function connect() {
+    ws = new WebSocket(wsUrl);
+    ws.onopen = () => console.log('[WS] connected');
+    ws.onclose = () => { console.log('[WS] disconnected, reconnecting...'); setOverlayVisible(false); try { resetBoard(); } catch (e) {} setTimeout(connect, 1000); };
+    ws.onerror = () => { try { ws.close(); } catch (e) {} };
+    // 命令串行化：每条 ws 命令排进同一条 Promise 链，前一条（含 submitGuess 的逐字母动画）
+    // 彻底执行完再处理下一条。否则 newGame/submit/连接时状态重放几个异步流程会并发踩同一组
+    // 全局光标(currentRow/currentCol)，把第一行渲染冲乱（首字母留第一行、整词跑到第二行）。
+    let _rpcChain = Promise.resolve();
+    ws.onmessage = (event) => {
+      _rpcChain = _rpcChain.then(async () => {
+        let msg, result;
+        try {
+          msg = JSON.parse(event.data);
+          const api = window.WORDLE_API;
+          switch (msg.method) {
+            case 'setWordLists':    result = api.setWordLists(msg.args[0], msg.args[1]); break;
+            case 'newGameWithAnswer': result = api.newGameWithAnswer(msg.args[0]); break;
+            case 'submitGuess':     result = await api.submitGuess(msg.args[0]); break;
+            case 'getState':        result = api.getState(); break;
+            case 'eval':            result = eval(msg.args[0]); break;
+            default: result = {error: 'unknown method'};
+          }
+        } catch (e) { result = {error: e && e.message}; }
+        try { ws.send(JSON.stringify({id: msg && msg.id, result: result})); } catch (e) {}
+      }).catch(() => {});
+    };
+  }
+  // 只在 HTTP 模式下连接（OBS 浏览器源 / bridge 服务），file:// 模式跳过
+  if (location.protocol !== 'file:') connect();
+})();
+</script>
+</body>
+</html>
