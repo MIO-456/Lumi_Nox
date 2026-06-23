@@ -13,3 +13,5 @@ scipy             # audio resampling
 PyAudioWPatch     # WASAPI audio I/O (Windows)
 requests          # HTTP (game bridges)
 aiohttp           # web server for the Wordle / Handle game frontends
+playwright        # browser automation for the Wordle bot (wordle_bot.py)
+pypinyin          # Chinese pinyin for the Handle bot (handle_engine.py)
