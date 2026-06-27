@@ -37,6 +37,7 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+import solver_client  # 求解丢独立子进程，避免重算占CPU把皮套动作挤卡（毛病三）
 from wordle_engine import (
     OPTIMAL_FIRST_GUESS,
     PATTERN_ALL_GREEN,
@@ -561,7 +562,7 @@ class WordleGame:
                     reasoning = f"Only {len(candidates)} candidate(s) left, picking directly."
             else:
                 # 算法 Top-N + LLM 选
-                top = get_best_guesses(candidates, n=5)
+                top = solver_client.best_guesses_or_fallback("wordle", candidates, 5, get_best_guesses)
                 print(f"  Turn {turn}: {len(candidates)} candidates, Top 5:")
                 for i, (w, e) in enumerate(top):
                     marker = " *" if w in self.answer_set else ""
@@ -625,7 +626,7 @@ def batch_test(n: int):
             elif len(candidates) <= 2:
                 guess = candidates[0]
             else:
-                top = get_best_guesses(candidates, n=1)
+                top = solver_client.best_guesses_or_fallback("wordle", candidates, 1, get_best_guesses)
                 guess = top[0][0]
 
             pattern = get_pattern(guess, answer)
@@ -828,7 +829,7 @@ class BrowserGame:
                 else:
                     reasoning = f"Only {len(candidates)} candidate(s) left."
             else:
-                top = get_best_guesses(candidates, n=5)
+                top = solver_client.best_guesses_or_fallback("wordle", candidates, 5, get_best_guesses)
                 print(f"  Turn {turn}: {len(candidates)} candidates, Top 5:")
                 for i, (w, e) in enumerate(top):
                     marker = " *" if w in self.answer_set else ""

@@ -66,7 +66,7 @@ _log_fn = lambda msg: print(msg, flush=True)
 _llm_client = None
 _llm_model: str = ""
 _brand_params_fn = None
-_parse_emotion_fn = None
+_resolve_call_target_fn = None  # 带工具请求的模型回退解析（fast_brain.resolve_call_target）
 _trigger_expression_fn = None
 _pa_instance = None  # pyaudio.PyAudio
 _sentence_endings = None  # compiled regex
@@ -74,14 +74,16 @@ _monitor_device_index = None
 _event_bus = None  # 由 lumi.py 注入；speak() 用它发 logical tts_done 事件
 
 
-def init(*, llm_client, llm_model: str, brand_params_fn, parse_emotion_fn,
+def init(*, llm_client, llm_model: str, brand_params_fn,
          trigger_expression_fn, pa_instance,
          sentence_endings, log_fn=None,
          monitor_device_index=None, enable_subtitle_obs: bool = True,
-         enable_subtitle_desktop: bool = False, event_bus=None):
+         enable_subtitle_desktop: bool = False, event_bus=None,
+         resolve_call_target_fn=None):
     """初始化模块依赖，由 lumi.py 在启动时调用一次"""
     global _log_fn, _llm_client, _llm_model, _brand_params_fn
-    global _parse_emotion_fn, _trigger_expression_fn, _pa_instance
+    global _resolve_call_target_fn
+    global _trigger_expression_fn, _pa_instance
     global _sentence_endings
     global _monitor_device_index, _event_bus
     global ENABLE_SUBTITLE_OBS, ENABLE_SUBTITLE_DESKTOP
@@ -91,7 +93,7 @@ def init(*, llm_client, llm_model: str, brand_params_fn, parse_emotion_fn,
     _llm_client = llm_client
     _llm_model = llm_model
     _brand_params_fn = brand_params_fn
-    _parse_emotion_fn = parse_emotion_fn
+    _resolve_call_target_fn = resolve_call_target_fn
     _trigger_expression_fn = trigger_expression_fn
     _pa_instance = pa_instance
     _sentence_endings = sentence_endings
@@ -612,7 +614,7 @@ def run_subtitle_ws_server(port: int = 8767):
         overlay_dir = os.path.join(os.path.dirname(__file__), "overlay")
         # 美术素材/ 被 .gitignore 忽略 —— main 仓库下有，worktree 切出来时没有。
         # 优先用本地（main 直接命中），找不到时上溯到 main 仓库（worktree 上溯两级
-        # 到项目根目录）。这样 worktree 跑直播也能拿到叠层图片。
+        # 到 <project-root>/）。这样 worktree 跑直播也能拿到 mio_block 等叠层的图片。
         _local_assets = os.path.join(os.path.dirname(__file__), "美术素材")
         _parent_assets = os.path.normpath(
             os.path.join(os.path.dirname(__file__), "..", "..", "美术素材")
@@ -816,7 +818,6 @@ def speak(messages, vad_model=None, cable_index=None,
 
     start = time.time()
     full_reply = ""
-    buffer = ""
 
     # 端到端 ChatTTSText 流式：整个一次 speak 对应一个 reply_id（一个 client task_id）。
     # 多句拼接到同一个流里，服务端把整段视作一份合成，不再因新句子取消旧句子。
@@ -855,8 +856,12 @@ def speak(messages, vad_model=None, cable_index=None,
 
     # LLM 流式生成
     bp = _brand_params_fn()
+    _call_client, _call_model = _llm_client, _llm_model
+    # 选中模型不支持工具时，带工具的游戏决策请求回退到支持工具的模型；聊天请求仍用选中模型。
+    if tools and _resolve_call_target_fn is not None:
+        _call_client, _call_model, bp = _resolve_call_target_fn(needs_tools=True)
     llm_kwargs = dict(
-        model=_llm_model,
+        model=_call_model,
         messages=messages,
         stream=True,
         stream_options={"include_usage": True},
@@ -873,7 +878,7 @@ def speak(messages, vad_model=None, cable_index=None,
     if tools:
         llm_kwargs["tools"] = tools
         llm_kwargs["tool_choice"] = "auto"  # 允许同时输出文本和 tool_call
-    response = _llm_client.chat.completions.create(**llm_kwargs)
+    response = _call_client.chat.completions.create(**llm_kwargs)
 
     # 启动打断监听
     interrupt_thread = None
@@ -884,7 +889,6 @@ def speak(messages, vad_model=None, cable_index=None,
         interrupt_thread.start()
 
     first_token = True
-    emotion_parsed = False
     _tts_bracket = False    # 括号过滤状态
     _tts_bracket_buf = ""
     tts_buffer = ""         # 干净文本缓冲，只收集过滤后的内容
@@ -1012,31 +1016,13 @@ def speak(messages, vad_model=None, cable_index=None,
                         turn_metrics["e2e_ms"] = round((time.time() - turn_metrics["e2e_start"]) * 1000, 1)
             full_reply += delta
 
-            # 解析情感标签（只在开头解析一次）
-            if not emotion_parsed:
-                buffer += delta
-                if "]" in buffer:
-                    emotion, clean = _parse_emotion_fn(buffer)
-                    if emotion:
-                        # 表情统一由 emotion_sidecar（专门模型）控制，快脑标签不再触发表情；
-                        # 仅剥离掉，避免偶发漏出的标签被 TTS 念出来（不再内联 print）。
-                        buffer = clean
-                    emotion_parsed = True
-                    if buffer:
-                        clean_text = _output_filtered(buffer)
-                        tts_buffer += clean_text
-                    buffer = ""
-                elif len(buffer) > 20:
-                    emotion_parsed = True
-                    clean_text = _output_filtered(buffer)
-                    tts_buffer += clean_text
-                    buffer = ""
-            else:
-                clean_text = _output_filtered(delta)
-                tts_buffer += clean_text
+            # 文本从第一个字就直接走括号过滤进 TTS 缓冲。早期那道"等情感标签 [开心] 出现/攒够
+            # 20 字才放行"的门已废弃（2026-06-05 起表情统一交 emotion_sidecar，快脑不再输出标签），
+            # 留着反而会把 ≤20 字短回复永久卡死。偶发漏出的 [动作]/【动作】仍由 _output_filtered 剥掉。
+            tts_buffer += _output_filtered(delta)
 
             # 遇到句末标点且不在括号内 → flush TTS
-            if emotion_parsed and _sentence_endings.search(delta):
+            if _sentence_endings.search(delta):
                 _flush_tts()
 
             # 字数硬截：游戏环节等场景给 max_chars 限制超长复读。
@@ -1051,7 +1037,7 @@ def speak(messages, vad_model=None, cable_index=None,
 
             # 复读检测：末尾短串高频重复（如"算了算了算了算了"）→ 立刻 break，不等字数/token
             # 跑满。豆包 2.0-mini 偶发退化复读，否则 TTS 会把整段复读念出来（实测读了约一分钟）。
-            if emotion_parsed and _is_runaway_repeat(_full_text):
+            if _is_runaway_repeat(_full_text):
                 _log_fn(
                     f"{C_ERR}[复读检测] 检测到退化复读，提前截断（已出 {len(_full_text)} 字）："
                     f"…{_full_text[-24:]}{C_RESET}"

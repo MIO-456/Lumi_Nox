@@ -6,7 +6,7 @@ Kingdom Rush Mod 注入工具
     python patch_kingdom_rush.py [game_folder]
 
 示例:
-    python patch_kingdom_rush.py "C:/Games/Kingdom Rush 1"
+    python patch_kingdom_rush.py "C:\Games\Kingdom Rush 1"
 
 效果:
     - 备份原始 exe 为 *.exe.bak
@@ -21,6 +21,30 @@ import io
 import os
 import sys
 import shutil
+import zlib
+import binascii
+
+
+def _make_placeholder_png(corrupt_png_bytes):
+    """损坏 PNG → 同尺寸全透明合法 PNG（从损坏数据的 IHDR 读宽高，IHDR 在开头通常完好）。
+    游戏能正常加载，对应精灵显示透明而非崩溃。"""
+    try:
+        # 签名(8) + len(4) + 'IHDR'(4) + w(4) + h(4)
+        w, h = struct.unpack('>II', corrupt_png_bytes[16:24])
+        if not (0 < w <= 8192 and 0 < h <= 8192):
+            return None
+    except Exception:
+        return None
+
+    def _chunk(typ, body):
+        return (struct.pack('>I', len(body)) + typ + body
+                + struct.pack('>I', binascii.crc32(typ + body) & 0xffffffff))
+
+    ihdr = struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0)  # 8bit RGBA
+    rawimg = (b'\x00' + b'\x00' * (w * 4)) * h            # 每行: filter0 + 全透明
+    idat = zlib.compress(rawimg, 9)
+    return (b'\x89PNG\r\n\x1a\n' + _chunk(b'IHDR', ihdr)
+            + _chunk(b'IDAT', idat) + _chunk(b'IEND', b''))
 
 # ========== Wrapper main.lua ==========
 # 加载原始游戏代码，然后 hook love.update 注入 bridge
@@ -168,6 +192,19 @@ def patch_exe(game_folder, bridge_lua_path=None):
 
         for item in original_zip.infolist():
             data = original_zip.read(item.filename)
+
+            # 自动修复破解版自带的损坏资源：CRC 不符的 PNG → 同尺寸透明占位图，
+            # 否则游戏画到它(如废土关怪)会因解码失败拿 nil 贴图崩溃。
+            if (binascii.crc32(data) & 0xffffffff) != item.CRC:
+                if item.filename.lower().endswith('.png'):
+                    ph = _make_placeholder_png(data)
+                    if ph is not None:
+                        data = ph
+                        print(f"  [修复] 损坏PNG {item.filename} → 透明占位图")
+                    else:
+                        print(f"  [警告] 损坏PNG无法生成占位 {item.filename}")
+                else:
+                    print(f"  [警告] 损坏非PNG文件 {item.filename}（原样写入）")
 
             if item.filename == 'main.lua':
                 # 重命名原始 main.lua

@@ -1,6 +1,8 @@
 import json
 import re
 
+from memory.decay import filter_active_facts
+
 
 def build_memory_context(storage, identity_key, agent_name, current_input, include_agent=False):
     """组装注入快脑的记忆上下文。
@@ -21,7 +23,8 @@ def build_memory_context(storage, identity_key, agent_name, current_input, inclu
                 + "\n".join(lines)
             )
 
-    viewer_facts = storage.list_active_viewer_facts(identity_key=identity_key, limit=6)
+    raw_viewer_facts = storage.list_active_viewer_facts(identity_key=identity_key, limit=999)
+    viewer_facts = filter_active_facts(raw_viewer_facts)[:6]
     if viewer_facts:
         lines = [f"- {item['fact_value']}" for item in viewer_facts]
         sections.append("## 这个观众的已知信息\n" + "\n".join(lines))

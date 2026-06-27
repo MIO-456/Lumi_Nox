@@ -21,15 +21,22 @@ import fast_brain
 from fast_brain import LLM_TEMPERATURE
 import lumi_tts
 import speech_output_arbiter
+import web_search
+from viewer_name import normalize_viewer_name
 from buckshot_prompt_context import (
+    COMBAT_PHASES,
+    LOADING_PHASES,
     build_available_actions,
     build_buckshot_prompt_blocks,
     build_common_identity_block,
+    build_dealer_turn_block,
     build_last_action_block,
+    build_loading_situation_block,
     build_rules_block,
     build_spectator_diff_block,
     build_state_block,
     items_to_cn_text,
+    phase_to_cn,
 )
 from lumi_tts import _rescue_tool_call_json
 
@@ -82,7 +89,8 @@ def build_realtime_mirror_qa(partner_name: str,
     过的提示模式），assistant 字段填占位承接话。模型把它理解成"导演告诉我搭档
     刚才和用户的对话内容"，不会和自己人设混淆。
 
-    与各角色的人设提示词配套：人设里要求模型把 [直播提示] 前缀识别为旁白信号。
+    与提示词协作段落配套（各角色的人设提示词 / Nox 同款里要求识别
+    [直播提示] 前缀作为旁白信号）。
     """
     user_text = (
         f"[直播提示] 你的搭档 {partner_name} 刚才和用户聊了：\n"
@@ -188,8 +196,10 @@ def _known_intel_text(game_request) -> str:
         line = line.strip()
         if not line or "必须" in line or "工具" in line:
             continue
-        if line.startswith("☑ 已知情报："):
-            line = line.removeprefix("☑ 已知情报：").strip()
+        for _prefix in ("★ 已知情报：", "☑ 已知情报："):
+            if line.startswith(_prefix):
+                line = line.removeprefix(_prefix).strip()
+                break
         lines.append(line)
     return "；".join(lines) if lines else "当前膛内未知"
 
@@ -202,7 +212,7 @@ def build_buckshot_game_context(ctx, game_request, ai_speaker: str, speaker_role
     spectator = resolve_game_spectator(ctx) or ""
     buckshot_state = {
         "game_status": getattr(game_request, "game_status", "进行中"),
-        "current_phase": f"{controller} 的回合" if getattr(state, "phase", "") == "player_turn" else getattr(state, "phase", "未知"),
+        "current_phase": phase_to_cn(getattr(state, "phase", ""), controller),
         "controller_hp": f"{state.health_player}/{state.max_health}",
         "dealer_hp": f"{state.health_opponent}/{state.max_health}",
         "live_count": state.live_remaining,
@@ -224,11 +234,12 @@ def build_buckshot_game_context(ctx, game_request, ai_speaker: str, speaker_role
 
 
 def build_buckshot_passive_context(ctx, ai_speaker: str) -> tuple[str, str]:
-    """无决策但游戏进行中：确定性策略接管时给模型解说视角的提示词。
+    """无决策但游戏进行中：确定性策略接管 / 庄家回合 / 加载阶段时给模型解说视角的提示词。
 
-    返回 (prompt, speaker_role)。
-    操作者：共同身份块 + 当前局面块 + 上一动作结果块 + 游戏规则块（不拼差异块）
-    旁观者：以上 + 旁观者差异块
+    返回 (prompt, speaker_role)。按当前阶段分流：
+    - 加载 / 发道具 / 场景切换：只给"准备中"块，不显示弹匣、上一动作、膛内情报（防开局乱说打了什么）
+    - 庄家回合 / 自己被铐：给"你只能旁观"块 + 轻量局面（不诱导模型说自己要行动）
+    - 玩家回合（确定性策略接管那一手）：完整局面 + 真实膛内情报 + 上一动作 + 规则
     """
     with ctx.slot_lock:
         if ctx.context_slot.get("activity_type") != "buckshot_roulette":
@@ -237,7 +248,8 @@ def build_buckshot_passive_context(ctx, ai_speaker: str) -> tuple[str, str]:
     game_status = snap.get("game_status", "")
     if game_status not in ("", "进行中"):
         return "", ""
-    if not snap.get("phase"):
+    phase_text = snap.get("phase", "")
+    if not phase_text:
         return "", ""
 
     # 角色信息一律走 ctx（背后是 director 真值），不读 snap.controller —— 那个字段
@@ -248,31 +260,50 @@ def build_buckshot_passive_context(ctx, ai_speaker: str) -> tuple[str, str]:
         spectator = ""
     speaker_role = "操作者" if ai_speaker == controller else "旁观者"
 
+    identity = build_common_identity_block(
+        controller_name=controller,
+        spectator_name=spectator,
+        speaker_name=ai_speaker,
+        speaker_role=speaker_role,
+    )
+
+    # ① 加载 / 发道具 / 场景切换：还没开枪，绝对不要解说子弹
+    if phase_text in LOADING_PHASES:
+        loading = build_loading_situation_block(
+            speaker_role=speaker_role, controller_name=controller
+        )
+        return "\n\n".join([identity, loading]), speaker_role
+
+    # ② 庄家回合 / 自己被铐：轮不到你，只能旁观
+    player_cuffed = bool(snap.get("player_cuffed"))
+    if phase_text == "dealer_turn" or player_cuffed:
+        dealer = build_dealer_turn_block(
+            speaker_role=speaker_role,
+            controller_name=controller,
+            player_cuffed=player_cuffed,
+        )
+        return "\n\n".join([identity, dealer]), speaker_role
+
+    # ③ 玩家回合（含 waiting 等中性阶段）：完整局面 + 真实膛内情报
     hp_max = snap.get("hp_max") or 0
     controller_hp = f"{snap.get('hp', '?')}/{hp_max}" if hp_max else f"{snap.get('hp', '?')}"
     dealer_hp = f"{snap.get('hp_opp', '?')}/{hp_max}" if hp_max else f"{snap.get('hp_opp', '?')}"
-    phase_text = snap.get("phase", "")
-    current_phase = f"{controller} 的回合" if phase_text == "player_turn" else (phase_text or "未知")
     buckshot_state = {
         "game_status": "进行中",
-        "current_phase": current_phase,
+        "current_phase": phase_to_cn(phase_text, controller),
         "controller_hp": controller_hp,
         "dealer_hp": dealer_hp,
         "live_count": snap.get("live", 0),
         "blank_count": snap.get("blank", 0),
-        "known_intel": "当前膛内未知",
+        # 放大镜 / 手机 / 逆转器看到的真实膛内情报（B 方案：操作者和围观者都给）
+        "known_intel": snap.get("known_intel") or "当前膛内未知",
         "controller_items": items_to_cn_text(snap.get("player_items", [])),
         "dealer_items": items_to_cn_text(snap.get("dealer_items", [])),
         "last_action_result": snap.get("last_action_result", ""),
     }
 
     parts = [
-        build_common_identity_block(
-            controller_name=controller,
-            spectator_name=spectator,
-            speaker_name=ai_speaker,
-            speaker_role=speaker_role,
-        ),
+        identity,
         build_state_block(controller_name=controller, buckshot_state=buckshot_state),
     ]
     last_action = build_last_action_block(buckshot_state["last_action_result"])
@@ -430,15 +461,14 @@ def _stream_llm_text_only(ctx: ConversationContext,
 
     start = time.time()
     full_reply = ""
-    buffer = ""
-    emotion_parsed = False
     first_token = True
     bracket_buf = ""       # 括号缓冲：遇到左括号开始攒，遇到右括号整段丢弃
     in_bracket = False
 
-    bp = fast_brain._brand_params()
+    # 选中模型不支持工具时，带工具的请求自动回退到支持工具的模型；聊天请求仍用选中模型。
+    _client, _model, bp = fast_brain.resolve_call_target(needs_tools=bool(tools))
     llm_kwargs = dict(
-        model=fast_brain.LLM_MODEL,
+        model=_model,
         messages=messages,
         stream=True,
         stream_options={"include_usage": True},
@@ -455,7 +485,7 @@ def _stream_llm_text_only(ctx: ConversationContext,
     if tools:
         llm_kwargs["tools"] = tools
         llm_kwargs["tool_choice"] = "auto"
-    response = fast_brain.llm_client.chat.completions.create(**llm_kwargs)
+    response = _client.chat.completions.create(**llm_kwargs)
 
     def _print_filtered(text):
         """流式打印，实时过滤括号内容"""
@@ -500,22 +530,9 @@ def _stream_llm_text_only(ctx: ConversationContext,
                 if "e2e_start" in ctx.turn_metrics:
                     ctx.turn_metrics["e2e_ms"] = round((time.time() - ctx.turn_metrics["e2e_start"]) * 1000, 1)
             full_reply += delta
-            buffer += delta
-
-            if not emotion_parsed:
-                if "]" in buffer:
-                    emotion, clean = ctx.parse_emotion(buffer)
-                    if emotion:
-                        print(f"{C_EMOTION}[{emotion}]{C_RESET} ", end="", flush=True)
-                        buffer = clean
-                    emotion_parsed = True
-                    if buffer:
-                        _print_filtered(buffer)
-                elif len(buffer) > 20:
-                    emotion_parsed = True
-                    _print_filtered(buffer)
-            else:
-                _print_filtered(delta)
+            # 文本从第一个字就直接过滤打印。早期"等情感标签 [开心]/攒够 20 字才放行"的门已废弃
+            # （表情统一交 emotion_sidecar，快脑不再输出标签），留着会卡死 ≤20 字短回复。
+            _print_filtered(delta)
 
     # 解析 tool_call 结果
     if _tc_chunks and tool_result_holder is not None:
@@ -564,6 +581,7 @@ def chat_and_speak(
     memory_text=None,
     viewer_identity_key="",
     memory_aside="",
+    batch_items=None,
 ):
     """用户说话 → 快脑回复（含双脑状态 + RAG + VTS + 打断）
 
@@ -600,45 +618,36 @@ def chat_and_speak(
     ai_speaker = ctx.scheduler.pick_speaker(user_input)
     fb = ctx.fast_brains[ai_speaker]
 
-    # 画画关键词检测（异步，不阻塞对话）
-    _drawing_subject = None
+    # 画画关键词检测：合并批次里每条原始弹幕单独判断+排队，避免多条画画请求被压成一个主题
+    # （"画爱心""画苹果""画栗子" 合并后曾只画了第一个爱心）。用合并函数保留的 batch_items
+    # 原始单条，而不是去拆合并文本——不依赖"弹幕不含换行"的隐含假设。
+    _draw_results = []  # [(subject, result), ...]
     if ctx.get_enable_drawing():
         import re as _re
-        _draw_subject = None
-        # 模式1：「画 + 量词 + 主题」（画个猫、画一只狗、来画朵花）— 量词必须存在
-        _m = _re.search(r'(?:给我|帮我|来)?画\s*一?[个只条朵幅张份副]\s*(.+)', user_input)
-        if _m:
-            _draw_subject = _m.group(1).strip().rstrip("吧呀啊吗呢哦嘛的～~！!？?。.")
-        # 模式2：「给我画/帮我画 + 主题」（给我画太阳）— 需要前缀区分
-        if not _draw_subject:
-            _m = _re.search(r'(?:给我|帮我)画\s*(.+)', user_input)
-            if _m:
-                _draw_subject = _m.group(1).strip().rstrip("吧呀啊吗呢哦嘛的～~！!？?。.")
-        # 模式3：「draw + 主题」
-        if not _draw_subject:
-            _m = _re.search(r'draw\s+(.+)', user_input, _re.IGNORECASE)
-            if _m:
-                _draw_subject = _m.group(1).strip().rstrip("吧呀啊吗呢哦嘛的～~！!？?。.")
-        # 模式4：「……的画/简笔画/素描」（一幅猫的画）
-        if not _draw_subject:
-            _m = _re.search(r'(?:一[幅张副份])?(.+?)的(?:画|简笔画|素描|图)', user_input)
-            if _m:
-                _draw_subject = _m.group(1).strip()
-        # 模式5（兜底）：正则提不出主题但消息含画画意图 → 快模型提取主题
-        if not _draw_subject:
-            _DRAW_INTENT_KW = ["画画", "画一下", "画一幅", "画一张", "来画", "你画", "画点"]
-            if any(kw in user_input for kw in _DRAW_INTENT_KW):
-                _draw_subject = ctx.extract_draw_subject(user_input)
-        if _draw_subject:
-            import lumi_draw
-            if not lumi_draw.is_drawing():
-                _drawing_subject = _draw_subject
-                ctx.mark_drawing_started(_draw_subject)
-                threading.Thread(
-                    target=lumi_draw.draw_sketch,
-                    args=(_draw_subject, ctx.on_draw_complete),
-                    daemon=True,
-                ).start()
+        import lumi_draw
+        # 合并批次 → 逐条原始弹幕的内容；单条/语音 → 就它本身
+        if batch_items:
+            _draw_inputs = [(it.get("text") or it.get("display_text") or "") for it in batch_items]
+        else:
+            _draw_inputs = [user_input]
+        _seen_subjects = set()
+        for _one in _draw_inputs:
+            _one = (_one or "").strip()
+            if not _one:
+                continue
+            # 粗筛：这条出现「画」或 draw 才送小模型判断主题
+            if not (("画" in _one) or _re.search(r'draw\b', _one, _re.IGNORECASE)):
+                continue
+            _subj = ctx.extract_draw_subject(_one)
+            if not _subj or _subj in _seen_subjects:
+                continue
+            _seen_subjects.add(_subj)
+            _res = lumi_draw.request_draw(_subj, ctx.on_draw_complete)
+            _draw_results.append((_subj, _res))
+            if _res in ("drawing", "queued"):
+                ctx.mark_drawing_started(_subj)
+            elif _res == "full":
+                break  # 队列已满，后面的也排不上，不必再调模型
 
     # 后台检测活动切换意图（不阻塞主流程，下一轮生效）
     with ctx.slot_lock:
@@ -651,9 +660,18 @@ def chat_and_speak(
 
     # 注入说话人标签到历史消息
     msg_content = user_input
-    if _drawing_subject:
-        msg_content += f"\n[系统：你正在画「{_drawing_subject}」的简笔画，画笔已经动起来了，大约半分钟后画完。回复时知道自己在画画就好，不要说自己不会画。]"
-    current_user_content = f"[{speaker}说] {msg_content}" if speaker != "未知" else msg_content
+    # 画画请求结果的本轮话术（让主播的口头回应和系统排队一致，别空头承诺）
+    if _draw_results:
+        _accepted = [s for s, r in _draw_results if r in ("drawing", "queued")]
+        _full = [s for s, r in _draw_results if r == "full"]
+        _note = ""
+        if _accepted:
+            _note += "你接下了观众点的画：" + "、".join(f"「{s}」" for s in _accepted) + "，会按顺序一幅幅画。"
+        if _full:
+            _note += "另外 " + "、".join(f"「{s}」" for s in _full) + " 没排上（排队满了），让他们等下一轮再点。"
+        if _note:
+            msg_content += f"\n[系统：{_note} 回复时自然知道这事，别说自己不会画、也别说已经画好了。]"
+    current_user_content = f"[{normalize_viewer_name(speaker)}说] {msg_content}" if speaker != "未知" else msg_content
     # 用户输入广播到所有 active speakers 的 history（双角色场景下两人都看到这一轮用户说什么）
     for _s in ctx.active_speakers:
         ctx.fast_brains[_s].append_user(current_user_content)
@@ -852,6 +870,24 @@ def chat_and_speak(
     # 双角色游戏环节末尾追加身份硬提醒（last instruction 压制人设代入）
     user_input_for_llm += build_role_reminder_suffix(ctx, ai_speaker)
 
+    # 联网搜索增强（仅闲聊轮、开关开启、闸门命中实时事实/明确要查时）：
+    # 调火山联网搜索拿结果摘要，作为参考块临时拼进 system_content（不进 history、不进正文），
+    # 快脑照常流式回答。搜索失败一律静默降级为无搜索回答，绝不拖垮发声。
+    if (not _in_game_segment and web_search.is_enabled()
+            and web_search.needs_search(memory_text)):
+        try:
+            _results = web_search.search_web(memory_text, count=5, log_fn=ctx.log_event)
+            if _results:
+                system_content += "\n\n" + web_search.build_search_context(_results)
+                ctx.log_event(
+                    f"{C_FAST}[联网搜索] 命中 {len(_results)} 条，已注入参考"
+                    f"（query={memory_text[:40]}）{C_RESET}"
+                )
+            else:
+                ctx.log_event(f"{C_FAST}[联网搜索] 无结果，按无搜索回答（query={memory_text[:40]}）{C_RESET}")
+        except Exception as e:
+            ctx.log_event(f"{C_ERR}[联网搜索] 异常降级：{e}{C_RESET}")
+
     # 构建 messages：历史消息纯文本，当前轮带截图
     # 不再打印 "说话人: " 前缀 + 流式正文（旧逻辑行缓冲延迟、且和按句 [X·说] 日志重复）；
     # 本轮发言统一由 lumi_tts._flush_tts 的按句 [X·说] 日志输出。
@@ -1036,7 +1072,7 @@ def chat_and_speak(
     return full_reply
 
 
-def proactive_speak(ctx: ConversationContext, vad_model=None, cable_index=None):
+def proactive_speak(ctx: ConversationContext, vad_model=None, cable_index=None, director_msg: str = None):
     """Lumi/Nox 主动说话（用户沉默时触发）或处理待决游戏请求。
 
     AI 角色由 ctx.scheduler.pick_speaker(None) 决定（next_speaker 轮换）；
@@ -1134,7 +1170,21 @@ def proactive_speak(ctx: ConversationContext, vad_model=None, cable_index=None):
     log_game_speaker_routing(ctx, "proactive_speak", game_label, game_request, pending_commentary_request, ai_speaker)
 
     fb = ctx.fast_brains[ai_speaker]
-    if len(fb.history) == 0:
+    if director_msg:
+        # 定向轮次：导演现场指示（环节切换/下播等）。换掉"主动找话题继续聊"的框架，
+        # 让角色模型把它当"立刻照做"的指令，而不是又起一段闲聊（角色模型对埋藏的弱
+        # 元指令不敏感，必须强位置 + 明确框架）。指令正文走 silence_msg 放到最后一条。
+        # 可观测性：这条只有走新"定向轮次"路径才会打印；ai_speaker 是调度器 pick_speaker
+        # 轮换选出来的（多次下播/切环节能看出 Lumi/Nox 轮着接，而非永远 Lumi）。
+        ctx.log_event(
+            f"{C_FAST}[导演·定向轮次] 调度器轮换选中 {ai_speaker} 接导演指令"
+            f"（强位置投递、非闲聊框架）：{director_msg[:30]}{C_RESET}"
+        )
+        proactive_instruction = (
+            "\n现在有一条导演的现场指示（见最后一条消息），请立刻照做："
+            "用你自己的人设口吻自然地说出来，不要继续之前的话题、也不要另起新话题。\n"
+        )
+    elif len(fb.history) == 0:
         proactive_instruction = ctx.proactive_prompt_opening
     elif pending_commentary_request:
         proactive_instruction = ctx.spectator_prompt_gaming
@@ -1244,6 +1294,9 @@ def proactive_speak(ctx: ConversationContext, vad_model=None, cable_index=None):
         ctx.log_event(f"{C_FAST}[快脑·无待决] 游戏进行中但无需决策，解说模式{C_RESET}")
 
     # 双角色游戏环节末尾追加身份硬提醒（last instruction 压制人设代入）
+    # 定向轮次：导演指示正文作为本轮驱动消息（最后一条 user 消息，最强位置）。
+    if director_msg:
+        silence_msg = director_msg
     silence_msg = (silence_msg or "") + build_role_reminder_suffix(ctx, ai_speaker)
 
     _proactive_entry_at = time.time()

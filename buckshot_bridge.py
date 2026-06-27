@@ -231,15 +231,18 @@ class DeterministicEngine:
         """弹匣变化时重置情报"""
         if state.shells_remaining != self._last_shells_remaining:
             if state.shells_remaining > self._last_shells_remaining:
+                # 装了新弹匣：旧情报全部作废
                 self.known_shell = None
                 self.known_positions.clear()
-            elif self.known_shell is not None:
+            else:
+                # 打掉一发（或啤酒退弹）：当前膛内已知作废，手机看到的后续位置整体前移一位。
+                # 不能再依赖 known_shell 是否存在——只有手机情报、没放大镜情报时位置也必须前移。
                 self.known_shell = None
-                new_positions = {}
-                for pos, shell_type in self.known_positions.items():
-                    if pos > 0:
-                        new_positions[pos - 1] = shell_type
-                self.known_positions = new_positions
+                self.known_positions = {
+                    pos - 1: shell_type
+                    for pos, shell_type in self.known_positions.items()
+                    if pos > 0
+                }
             self._last_shells_remaining = state.shells_remaining
 
     @property
@@ -392,8 +395,10 @@ def public_known_intel_text(intel_text: str = "") -> str:
         line = line.strip()
         if not line or "必须" in line or "工具" in line:
             continue
-        if line.startswith("☑ 已知情报："):
-            line = line.removeprefix("☑ 已知情报：").strip()
+        for _prefix in ("★ 已知情报：", "☑ 已知情报："):
+            if line.startswith(_prefix):
+                line = line.removeprefix(_prefix).strip()
+                break
         lines.append(line)
     return "；".join(lines) if lines else "当前膛内未知"
 
@@ -830,6 +835,11 @@ class BuckshotBridge:
                         "game_status": self._game_status,
                         # controller 不进 payload —— 让 lumi.py 端的 game_state 订阅自己向 director 取真值
                         "last_action_result": self._last_action_result,
+                        # 放大镜 / 手机 / 逆转器看到的真实膛内情报（脱敏后的中文），供解说提示词使用。
+                        # round_start/victory/defeat 时引擎已清空，这里读到的就是"未知"。
+                        "known_intel": public_known_intel_text(self.engine.intel_text()),
+                        "player_cuffed": self.state.player_cuffed,
+                        "dealer_cuffed": self.state.dealer_cuffed,
                     }
                     self.log(state_log)
                     print(self.state.summary())

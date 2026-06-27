@@ -106,16 +106,28 @@ class KingdomRushBridge:
             if not bot.connect(retries=3, interval=1, quiet=True):
                 self._push_event("game_event",
                     {"text": "游戏未运行，自动启动中...", "event": "launching"})
+                from kingdom_rush_ai import trigger_launcher_start
                 if not launch_game():
                     self._push_event("game_event",
                         {"text": "游戏启动失败", "event": "launch_fail"})
                     self.running = False
                     return
-                # 重试 15 次 × 2 秒 = 30 秒，和 lumi.py _on_bus_start_activity 的
-                # kingdom_rush 等待 timeout 对齐。原来是 60 次（2 分钟）—— bridge
-                # 慢慢重试时 director 已经误判 ready 进了 PLAYING_KR，状态卡死，
-                # 用户手动切才回退（实测 2026-05-10）。
-                if not bot.connect(retries=15, interval=2):
+                # 启动器"开始"触发后，在连接窗口内最多重试 3 次：每次等约 10 秒
+                # （5×2s）看 bridge 是否连上，没连上就重新把启动器拉到前台再触发
+                # 一次（直播后台进程偶发抢不到前台/触发未生效）。3×10s≈30s，和
+                # lumi.py 的 kingdom_rush ready 超时对齐——超时则走通用回退到聊天，
+                # 不再像 2026-05-10 那样让 bridge 慢慢重试导致状态卡死。
+                connected = False
+                for attempt in range(3):
+                    if attempt > 0:  # 首次触发已在 launch_game 内完成
+                        self._push_event("game_event",
+                            {"text": f"启动器未进入游戏，第{attempt}/2次重试触发开始",
+                             "event": "relaunch_retry"})
+                        trigger_launcher_start()
+                    if bot.connect(retries=5, interval=2, quiet=True):
+                        connected = True
+                        break
+                if not connected:
                     self._push_event("game_event",
                         {"text": "游戏启动后仍无法连接", "event": "connect_fail"})
                     self.running = False

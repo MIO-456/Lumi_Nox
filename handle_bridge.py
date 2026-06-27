@@ -21,6 +21,7 @@ from pathlib import Path
 from aiohttp import web
 import aiohttp
 
+import solver_client  # 求解丢独立子进程，避免重算占CPU把皮套动作挤卡（毛病三）
 from handle_engine import (
     PATTERN_ALL_GREEN,
     MAX_TURNS,
@@ -553,7 +554,7 @@ class HandleBridge:
                 # 首轮：算法推荐开局词池，但 LLM 自由选
                 algo_top = [(w, 0.0) for w in self._openers[:5]]
             else:
-                algo_top = get_best_guesses(candidates, n=5)
+                algo_top = solver_client.best_guesses_or_fallback("handle", candidates, 5, get_best_guesses)
 
             state_text = self._build_state_text(
                 turn, tracker, len(candidates), algo_top,

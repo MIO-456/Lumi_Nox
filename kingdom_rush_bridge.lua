@@ -5,7 +5,7 @@
 local socket = require("socket")
 
 local M = {}
-local BRIDGE_VERSION = "v5.7"  -- 界面检测 + 关卡启动 + 关卡列表
+local BRIDGE_VERSION = "v5.13"  -- get_state 增发 exit 终点坐标(核对进度) + 增援不再留CD(Python侧)
 local server = nil
 local clients = {}
 local push_interval = 0  -- 默认不自动推送，客户端可通过 set_push_interval 开启
@@ -241,6 +241,52 @@ local function get_path_entries()
     return entries
 end
 
+-- 关卡终点(掉血点)：各条路"最后一段最后一个节点"的汇聚点。
+-- 不能数节点算进度——同一 pi 下有多条"子路径"(spi)，怪只走其中一条就到家，
+-- 把所有子路径节点数加起来当总长会把进度算错(路2到家只算28%)。改用"到终点的物理距离"。
+local function get_level_exit()
+    local ok, pd = pcall(require, "path_db")
+    if not (ok and pd and pd.paths) then return nil end
+    local ends = {}
+    for _, path in ipairs(pd.paths) do
+        local lastseg = path[#path]
+        if lastseg and #lastseg > 0 then
+            ends[#ends + 1] = lastseg[#lastseg]
+        end
+    end
+    -- 汇聚点：与最多其他终点相近(<60px)的那个(单出口关卡所有终点会重合在此)
+    local best, bestcount = nil, -1
+    for _, a in ipairs(ends) do
+        local c = 0
+        for _, b in ipairs(ends) do
+            local dx, dy = a.x - b.x, a.y - b.y
+            if dx * dx + dy * dy < 3600 then c = c + 1 end
+        end
+        if c > bestcount then bestcount = c; best = a end
+    end
+    if best then return {x = best.x, y = best.y} end
+    return nil
+end
+
+-- 敌人进度 0~1 = 物理上离终点多近：1 - 当前到终点距离 / 出生点到终点距离。
+-- 出生点用该 pi 第一段第一个节点(与 path_entries 一致)。绕路/子路径结构都不影响。
+local function enemy_path_progress(e, exit)
+    if not (e.nav_path and e.nav_path.pi and e.pos and exit) then return nil end
+    local ok, pd = pcall(require, "path_db")
+    if not (ok and pd and pd.paths and pd.paths[e.nav_path.pi]) then return nil end
+    local firstseg = pd.paths[e.nav_path.pi][1]
+    local entry = firstseg and firstseg[1]
+    if not entry then return nil end
+    local function d(ax, ay, bx, by)
+        return math.sqrt((ax - bx) * (ax - bx) + (ay - by) * (ay - by))
+    end
+    local d_total = d(entry.x, entry.y, exit.x, exit.y)
+    if d_total <= 0 then return nil end
+    local p = 1 - d(e.pos.x, e.pos.y, exit.x, exit.y) / d_total
+    if p < 0 then p = 0 elseif p > 1 then p = 1 end
+    return p
+end
+
 -- 计算某位置的路径覆盖度（附近有多少条路径段经过）
 local function calc_path_score(px, py)
     local score = 0
@@ -308,6 +354,26 @@ local function collect_towers()
                     t.rally_y = e.barrack.rally_pos.y
                 end
             end
+            -- T4 特化塔的特殊技能（满级后可购买/升级）
+            -- 每个技能含 level/max_level/price_base/price_inc，
+            -- 升一级花费 = price_base + price_inc * 当前level
+            if e.powers then
+                local plist = {}
+                for pname, pw in pairs(e.powers) do
+                    if type(pw) == "table" and pw.level ~= nil and pw.max_level ~= nil then
+                        local entry = {
+                            name = pname,
+                            level = pw.level,
+                            max_level = pw.max_level,
+                        }
+                        if pw.level < pw.max_level then
+                            entry.next_cost = (pw.price_base or 0) + (pw.price_inc or 0) * pw.level
+                        end
+                        plist[#plist + 1] = entry
+                    end
+                end
+                if #plist > 0 then t.powers = plist end
+            end
             towers[#towers + 1] = t
         end
     end
@@ -345,6 +411,7 @@ local function collect_enemies()
     local store = game and game.store
     if not store or not store.entities then return enemies end
 
+    local exit = get_level_exit()  -- 本帧算一次终点，传给每个敌人算进度
     for id, e in pairs(store.entities) do
         if e.enemy and e.health and not e.health.dead then
             local en = {
@@ -362,10 +429,11 @@ local function collect_enemies()
             }
             -- 路径进度与所属路径
             if e.nav_path then
-                en.path_ni = e.nav_path.ni        -- 节点进度
+                en.path_ni = e.nav_path.ni        -- 段内节点序号(非全局,勿直接当进度)
                 en.path_spi = e.nav_path.spi      -- 段索引
                 en.path_index = e.nav_path.pi     -- 所属路径编号
                 en.path_dir = e.nav_path.dir      -- 方向
+                en.path_progress = enemy_path_progress(e, exit)  -- 进度0~1=离终点多近(距离法)
             end
             enemies[#enemies + 1] = en
         end
@@ -424,6 +492,63 @@ local function get_enemy_stats(template_name)
     return stats
 end
 
+-- 怪物图鉴说明缓存：模板 → {name, desc}
+-- 解析链：get_template(creep).info.i18n_key 拼 _NAME/_DESCRIPTION/_EXTRA/_SPECIAL
+-- 查 assets.strings.zh-Hans。这些是数值属性外的机制信息（会下崽/再生/闪避/飞行/
+-- 激怒等），喂给 LLM 做塔型针对（已实测全关怪可解析）。
+local enemy_bestiary_cache = {}
+local function get_enemy_bestiary(template_name)
+    local cached = enemy_bestiary_cache[template_name]
+    if cached ~= nil then
+        if cached == false then return nil end
+        return cached
+    end
+    local db = get_edb()
+    local st = package.loaded['assets.strings.zh-Hans']
+    local result = false
+    if db and st then
+        local ok, tmpl = pcall(db.get_template, db, template_name)
+        local key = ok and tmpl and tmpl.info and tmpl.info.i18n_key
+        if key then
+            local parts = {}
+            local de = st[key .. '_DESCRIPTION']
+            local ex = st[key .. '_EXTRA']
+            if de then parts[#parts + 1] = de end
+            if ex then parts[#parts + 1] = (tostring(ex):gsub('[\r\n]+', ' / ')) end
+            result = {name = st[key .. '_NAME'], desc = table.concat(parts, '  ')}
+        end
+    end
+    enemy_bestiary_cache[template_name] = result
+    if result == false then return nil end
+    return result
+end
+
+-- 收集本关所有 creep 模板的图鉴说明 {template = {name, desc}}
+local function collect_bestiary()
+    local data = {}
+    local wdb = package.loaded['wave_db']
+    if wdb and wdb.db and wdb.db.groups then
+        for gi = 1, #wdb.db.groups do
+            local g = wdb.db.groups[gi]
+            local waves = g.waves or g
+            if type(waves) == "table" then
+                for _, w in ipairs(waves) do
+                    if w.spawns then
+                        for _, sp in ipairs(w.spawns) do
+                            local c = sp.creep
+                            if c and not data[c] then
+                                local b = get_enemy_bestiary(c)
+                                if b then data[c] = b end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return data
+end
+
 local function collect_next_wave()
     local store = game and game.store
     if not store then return nil end
@@ -468,6 +593,43 @@ local function collect_next_wave()
     return result
 end
 
+-- 全关所有波用到的路集合 + 各路波次数（静态，来自 wave_db.db.groups）
+-- 用于给塔位估值：覆盖多条"全关会用到的路"的路口，从开局就该被看重，
+-- 而不是只看当前激活的路（开局往往只有第一波那一条路活跃 → 路口被低估）。
+local _level_paths_cache = nil
+local _level_paths_cache_idx = -2
+local function collect_level_paths()
+    local store = game and game.store
+    local lidx = store and store.level_idx or -1
+    if _level_paths_cache and _level_paths_cache_idx == lidx then
+        return _level_paths_cache
+    end
+    local wdb = package.loaded['wave_db']
+    if not wdb or not wdb.db or not wdb.db.groups then return nil end
+    local counts = {}
+    local ok = pcall(function()
+        for gi = 1, #wdb.db.groups do
+            local g = wdb.db.groups[gi]
+            local waves = g.waves or g
+            if type(waves) == "table" then
+                for _, w in ipairs(waves) do
+                    if w.path_index then counts[w.path_index] = (counts[w.path_index] or 0) + 1 end
+                end
+            end
+        end
+    end)
+    if not ok then return nil end
+    -- 排成两个对齐数组：paths=[1,2,3] wave_counts=[17,7,6]
+    local paths = {}
+    for p in pairs(counts) do paths[#paths + 1] = p end
+    table.sort(paths)
+    local wcounts = {}
+    for i, p in ipairs(paths) do wcounts[i] = counts[p] end
+    _level_paths_cache = {paths = paths, wave_counts = wcounts}
+    _level_paths_cache_idx = lidx
+    return _level_paths_cache
+end
+
 local function collect_game_state()
     local state = {
         type = "game_state",
@@ -490,6 +652,13 @@ local function collect_game_state()
     state.tick = store.tick
     state.level_name = store.level_name
     state.level_idx = store.level_idx
+
+    -- 全关会用到的路集合 + 各路波次数（给塔位估值用，见 collect_level_paths）
+    local lp = collect_level_paths()
+    if lp then
+        state.level_paths = lp.paths
+        state.level_path_wave_counts = lp.wave_counts
+    end
 
     -- 扣命检测：生命值减少时，找最接近出口的敌人作为突破者
     if _last_lives >= 0 and store.lives < _last_lives then
@@ -546,6 +715,8 @@ local function collect_game_state()
 
     -- 路径入口坐标（每条路径的起点）
     state.path_entries = get_path_entries()
+    -- 关卡终点(掉血点汇聚点)，供核对进度计算
+    state.exit = get_level_exit()
 
     -- 下一波预览（敌人类型+抗性+路径分配）
     state.next_wave = collect_next_wave()
@@ -730,6 +901,46 @@ local function action_upgrade_tower(cmd)
     tower.tower.upgrade_to = target
 
     return {type = "ok", action = "upgrade_tower", target = target, cost = upgrade_cost, gold = store.player_gold, method = "upgrade_to", bridge_version = BRIDGE_VERSION}
+end
+
+-- T4 特化塔的特殊技能购买/升级（如游侠的 poison/thorn）
+-- 与建塔升级不同：技能升级是 GUI 内联处理，不走 tower_upgrade 系统，
+-- 必须手动扣金币 + 累加 spent + level+1 + 置 changed=true，
+-- 引擎下一帧会消费 changed 标志、把对应 mod/aura 挂到塔上（已实测验证）。
+local function action_upgrade_power(cmd)
+    local store = game and game.store
+    if not store then return {type = "error", message = "game.store not found"} end
+
+    local tower_id = cmd.tower_id
+    local power_name = cmd.power
+    if not tower_id then return {type = "error", message = "missing tower_id"} end
+    if not power_name then return {type = "error", message = "missing power"} end
+
+    local e = store.entities[tower_id]
+    if not e then return {type = "error", message = "tower not found: " .. tostring(tower_id)} end
+    if not e.powers then return {type = "error", message = "tower has no powers (not a T4 tower?)"} end
+
+    local pw = e.powers[power_name]
+    if not pw or pw.level == nil or pw.max_level == nil then
+        return {type = "error", message = "no such power: " .. tostring(power_name)}
+    end
+    if pw.level >= pw.max_level then
+        return {type = "error", message = "power already max level: " .. tostring(power_name)}
+    end
+
+    local price = (pw.price_base or 0) + (pw.price_inc or 0) * pw.level
+    if store.player_gold < price then
+        return {type = "error", message = "not enough gold: " .. store.player_gold .. " < " .. price}
+    end
+
+    store.player_gold = store.player_gold - price
+    e.tower.spent = (e.tower.spent or 0) + price
+    pw.level = pw.level + 1
+    pw.changed = true
+
+    return {type = "ok", action = "upgrade_power", tower_id = tower_id, power = power_name,
+            level = pw.level, max_level = pw.max_level, cost = price, gold = store.player_gold,
+            bridge_version = BRIDGE_VERSION}
 end
 
 local function action_send_wave()
@@ -1046,6 +1257,9 @@ local function handle_command(cmd, client)
     elseif action == "get_state" then
         send_to(client, collect_game_state())
 
+    elseif action == "get_bestiary" then
+        send_to(client, {type = "bestiary", data = collect_bestiary()})
+
     -- === 游戏操作 ===
     elseif action == "build_tower" then
         send_to(client, action_build_tower(cmd))
@@ -1055,6 +1269,9 @@ local function handle_command(cmd, client)
 
     elseif action == "upgrade_tower" then
         send_to(client, action_upgrade_tower(cmd))
+
+    elseif action == "upgrade_power" then
+        send_to(client, action_upgrade_power(cmd))
 
     elseif action == "send_wave" then
         send_to(client, action_send_wave())
@@ -1515,7 +1732,7 @@ function M.update(dt)
             game = "Kingdom Rush",
             version = BRIDGE_VERSION,
             message = "BridgeMod ready",
-            commands = {"ping","get_state","build_tower","sell_tower","upgrade_tower","send_wave","move_hero","use_power","set_rally_point","get_path_points","eval","inspect","inspect_globals","find_game","set_push_interval","detect_screen","go_to_map","restart_level","load_slot","start_level","get_level_list"}
+            commands = {"ping","get_state","build_tower","sell_tower","upgrade_tower","upgrade_power","send_wave","move_hero","use_power","set_rally_point","get_path_points","eval","inspect","inspect_globals","find_game","set_push_interval","detect_screen","go_to_map","restart_level","load_slot","start_level","get_level_list"}
         })
     end
 

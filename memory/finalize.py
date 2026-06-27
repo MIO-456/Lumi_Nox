@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from memory.batch_utils import make_custom_id
+from memory.guard_facts import backfill_guard_facts
 from memory.extractor import (
     apply_agent_fact_results,
     apply_viewer_fact_results,
@@ -141,6 +142,14 @@ def finalize_session_memory(
     t0 = time.time()
     batch_id = f"sync-{int(t0)}"
 
+    # 确定性兜底：先把本场上舰事件补成 viewer_fact，不依赖 LLM 抽取（LLM 会把
+    # "开通了舰长"误判成一次性动作而漏抽）。幂等、source='manual' 受保护。
+    try:
+        guard_written = backfill_guard_facts(storage, session_id=session_id, log_fn=log)
+    except Exception as e:
+        guard_written = 0
+        log(f"[记忆·上舰兜底] 失败（不影响后续）：{e}")
+
     viewer_fact_rows = collect_viewer_fact_rows(storage, session_id)
     viewer_summary_rows = collect_viewer_summary_rows(storage, session_id)
     agent_fact_rows = (
@@ -158,7 +167,7 @@ def finalize_session_memory(
     )
     if total == 0:
         log("[记忆·会话结束] 没有 pending 数据，跳过")
-        return {"skipped": True, "elapsed_sec": 0.0}
+        return {"skipped": True, "elapsed_sec": 0.0, "guard_fact": guard_written}
 
     log(
         f"[记忆·会话结束] 同步处理本场 pending："
@@ -169,7 +178,7 @@ def finalize_session_memory(
         f"共 {total} 次 LLM 调用，并发 {concurrency}"
     )
 
-    stats = {"skipped": False}
+    stats = {"skipped": False, "guard_fact": guard_written}
 
     if viewer_fact_rows:
         results = _process_rows_concurrent(

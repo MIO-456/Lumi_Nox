@@ -66,6 +66,18 @@ _BRAND_PARAMS = {
         "logit_bias": {},
         "extra_body": {"enable_thinking": False},
     },
+    # 豆包角色扮演模型专用品牌：复用 doubao 的采样/惩罚参数，但 logit_bias 留空——
+    # doubao 品牌那套括号/穿帮词封禁的 token id 只在 2.0-mini/lite 上实测一致，角色模型
+    # 是不同模型、分词器可能不同，套用旧 id 会误封随机 token、污染输出；改靠出声层的
+    # 括号过滤兜底（lumi_tts / conversation 的 _output_filtered）。思考默认关压延迟。
+    "doubao_character": {
+        "temperature": 1.0,
+        "top_p": 0.7,
+        "frequency_penalty": 0.5,
+        "presence_penalty": 0.5,
+        "logit_bias": {},
+        "extra_body": {"thinking": {"type": "disabled"}},
+    },
     "openai": {
         "temperature": 0.8,
         "top_p": 1.0,
@@ -82,7 +94,16 @@ LLM_MODELS = {
     "2.0-lite":     ("Doubao 2.0 Lite",   _ark_client,   "doubao-seed-2-0-lite-260428", "doubao"),
     "1.6-flash":    ("Doubao 1.6 Flash",  _ark_client,   "doubao-seed-1-6-flash-250828", "doubao"),
     "qwen3.5-flash":("Qwen 3.5 Flash",    _qwen_client,  "qwen3.5-flash", "qwen"),
+    # 角色扮演专调模型（同方舟接口，复用 _ark_client）。仅用于聊天环节：不支持工具调用，
+    # 游戏决策的带工具请求会经 resolve_call_target 自动回退到支持工具的模型。
+    "character":    ("Doubao 角色扮演",   _ark_client,   "doubao-seed-character-251128", "doubao_character"),
 }
+
+# 不支持工具调用（function calling）的模型 key。带工具的请求（游戏决策）落到这些模型上
+# 会失效，需回退到支持工具的模型来发那一次请求。
+_NO_TOOL_MODELS = {"character"}
+# 选中模型不支持工具时，带工具的请求回退到这个模型（仍走方舟、参数干净）。
+TOOL_FALLBACK_MODEL_KEY = "2.0-lite"
 
 # 仅用作函数签名默认值，实际调用时被 _brand_params() 覆盖
 LLM_TEMPERATURE = 1.0
@@ -108,14 +129,33 @@ _MODEL_EXTRA_BODY = {
 }
 
 
-def _brand_params() -> dict:
-    """返回当前模型对应品牌的推理参数；该模型若有 extra_body 覆盖则用覆盖的。"""
-    brand = LLM_MODELS[_current_model_key][3]
+def _brand_params(model_key: str = None) -> dict:
+    """返回指定模型对应品牌的推理参数（省略则用当前选中模型）；该模型若有 extra_body 覆盖则用覆盖的。"""
+    key = model_key or _current_model_key
+    brand = LLM_MODELS[key][3]
     params = _BRAND_PARAMS[brand]
-    override = _MODEL_EXTRA_BODY.get(_current_model_key)
+    override = _MODEL_EXTRA_BODY.get(key)
     if override is not None:
         params = {**params, "extra_body": override}  # 新 dict，不污染 _BRAND_PARAMS
     return params
+
+
+def current_supports_tools() -> bool:
+    """当前选中模型是否支持工具调用（function calling）。"""
+    return _current_model_key not in _NO_TOOL_MODELS
+
+
+def resolve_call_target(needs_tools: bool = False):
+    """返回本次请求该用的 (client, model_id, brand_params)。
+
+    普通请求用当前选中模型；当请求带工具、但当前模型不支持工具时，回退到
+    TOOL_FALLBACK_MODEL_KEY——让游戏决策这类带工具的请求仍能正常工作，而聊天环节
+    仍用当前选中模型（如角色扮演模型）。
+    """
+    if needs_tools and not current_supports_tools():
+        key = TOOL_FALLBACK_MODEL_KEY
+        return LLM_MODELS[key][1], LLM_MODELS[key][2], _brand_params(key)
+    return llm_client, LLM_MODEL, _brand_params()
 
 # 兼容旧引用：指向当前品牌参数（用于 temperature 默认值等）
 @property

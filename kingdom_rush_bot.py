@@ -252,6 +252,21 @@ class KingdomRushBot:
                 print(f"  升级失败: {result.get('message', '?')}")
         return result
 
+    def upgrade_power(self, tower_id, power):
+        """购买/升级 T4 塔的特殊技能: tower_id=塔实体id, power=技能名(如 poison/thorn)"""
+        result = self.send_and_receive({
+            "action": "upgrade_power",
+            "tower_id": int(tower_id),
+            "power": power
+        })
+        if result:
+            if result.get("type") == "ok":
+                print(f"  技能升级成功: {power} Lv{result.get('level')}/{result.get('max_level')} "
+                      f"花费={result.get('cost')} 余额={result.get('gold')}")
+            else:
+                print(f"  技能升级失败: {result.get('message', '?')}")
+        return result
+
     def send_wave(self):
         """提前出波"""
         result = self.send_and_receive({"action": "send_wave"})

@@ -407,6 +407,42 @@ class MemoryStorage:
             )
         return cur.lastrowid
 
+    def has_active_viewer_fact(self, identity_key, category, fact_key):
+        """检查同三元组下是否存在任意来源的 active fact（用于确定性兜底写入前去重）。"""
+        with self._connect() as conn:
+            r = conn.execute(
+                """
+                SELECT 1 FROM viewer_facts
+                WHERE identity_key = ? AND category = ? AND fact_key = ?
+                  AND status = 'active'
+                LIMIT 1
+                """,
+                (identity_key, category, fact_key),
+            ).fetchone()
+        return r is not None
+
+    def list_guard_messages(self, session_id=None):
+        """列出上舰消息（source_type='guard_buy'）。session_id=None 时扫全库。"""
+        with self._connect() as conn:
+            if session_id is None:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM viewer_messages
+                    WHERE source_type = 'guard_buy'
+                    ORDER BY id ASC
+                    """
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM viewer_messages
+                    WHERE source_type = 'guard_buy' AND session_id = ?
+                    ORDER BY id ASC
+                    """,
+                    (session_id,),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
     def has_manual_viewer_fact(self, identity_key, category, fact_key):
         """检查同三元组下是否存在 manual 来源的 active fact。
         如果有，LLM 抽出的新 fact 应当跳过覆盖以保护人工修正。"""

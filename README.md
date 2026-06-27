@@ -56,7 +56,10 @@ files below.
   **LuaJIT mod reverse-engineered into the game's LÖVE engine** (see
   [docs/kingdom-rush-reverse-engineering.md](docs/kingdom-rush-reverse-engineering.md))
   — and two word games, **Wordle** and **Handle** (汉兜, a Chinese-idiom Wordle), each
-  a self-contained web frontend + solver.
+  a self-contained web frontend + an entropy solver that runs in a **separate worker
+  process**, so the heavy mid-game search never stalls the main loop. The Kingdom Rush
+  AI now pairs its algorithmic tower-placement skeleton with a **per-wave LLM strategist**
+  that reads the in-game bestiary and adapts the build to each incoming wave.
 - **Fast brain** (`fast_brain.py`) — a per-character lightweight LLM for tool-driven
   decisions alongside the realtime voice chat.
 - **Coordination backbone** (`event_bus.py`, `state_machine.py`) — every module talks
@@ -71,11 +74,14 @@ main.py                    # runnable demo — two AI characters co-hosting (no 
 realtime_chat.py           # dual end-to-end session pool, attribution, audio routing
 realtime_chat_protocol.py  # doubao SC2.0 websocket protocol codec
 conversation.py            # turn orchestration + cross-character history mirroring
+web_search.py              # live web-search augmentation for the fast brain
+viewer_name.py             # viewer-name normalization + multi-join folding
 fast_brain.py              # per-character lightweight LLM for tool-driven decisions
 speaker_scheduler.py       # who-speaks-next: @-mentions, hand-offs, viewer queue
 speech_output_arbiter.py   # one-voice-at-a-time arbitration (QUEUE/DROP/INTERRUPT)
 event_bus.py               # in-process pub/sub + request/response
 state_machine.py           # global stream state + transitions
+run_architecture.py        # single source of truth: text vs realtime pipeline
 voice_config.py            # per-character runtime config (example characters)
 lumi_tts.py                # streaming TTS + subtitles
 cosyvoice_tts.py           # CosyVoice voice-cloned synthesizer
@@ -96,6 +102,7 @@ kr_battle_history.py       # Kingdom Rush battle-history tracking
 patch_kingdom_rush.py      # injects the bridge mod into a local game install
 wordle_bot.py / wordle_bridge.py / wordle_engine.py / wordle.html      # Wordle solver + self-contained frontend
 handle_bridge.py / handle_engine.py / handle.html                      # Handle (汉兜, Chinese-idiom Wordle)
+solver_worker.py / solver_client.py                                    # word-game entropy solver in a separate worker process
 docs/ARCHITECTURE.md       # full design
 docs/terraria-behavior-tree.md            # Terraria bot's atomic-behavior architecture
 docs/kingdom-rush-reverse-engineering.md  # the LuaJIT reverse-engineering notes

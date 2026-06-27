@@ -9,7 +9,10 @@ Kingdom Rush 对战历史持久化模块
 import json
 import os
 
-HISTORY_FILE = "logs/kr_battle_history.json"
+# 绝对路径（基于本模块所在目录），避免不同 cwd 把历史写到不同文件——
+# 之前相对 "logs/..." 导致 worktree 与 main 各存一份、学习/刷星基于错误历史。
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+HISTORY_FILE = os.path.join(_BASE_DIR, "logs", "kr_battle_history.json")
 MAX_RECORDS_PER_KEY = 5
 
 

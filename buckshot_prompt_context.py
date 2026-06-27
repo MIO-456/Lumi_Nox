@@ -68,6 +68,82 @@ def command_from_chinese_action(action_cn: str) -> dict | None:
     return dict(command) if command else None
 
 
+# 真正的"战斗阶段"——双方轮流开枪，弹匣里有子弹、可以解说膛内情况。
+COMBAT_PHASES = {"player_turn", "dealer_turn"}
+# 非战斗阶段——还在加载场景、发道具、装新弹匣，这局还没开枪。
+LOADING_PHASES = {"round_loading", "item_grabbing", "scene_changed", "death_recovery_main"}
+
+
+def phase_to_cn(phase: str, controller_name: str = "操作者") -> str:
+    """把游戏内部阶段标识翻成模型能直接看懂的中文。
+    英文原词（如 round_loading / dealer_turn）直接塞进提示词时模型理解不稳，会乱说。"""
+    if phase == "player_turn":
+        return f"{controller_name} 的回合"
+    return {
+        "dealer_turn": "庄家的回合",
+        "round_loading": "装弹中",
+        "item_grabbing": "发道具阶段",
+        "scene_changed": "场景切换中",
+        "death_recovery_main": "复活中",
+        "waiting": "等待中",
+    }.get(phase, phase or "未知")
+
+
+def build_loading_situation_block(*, speaker_role: str = "操作者", controller_name: str = "操作者") -> str:
+    """加载 / 发道具 / 场景切换等非战斗阶段：这局还没开枪，绝对不要解说子弹。"""
+    return (
+        "游戏阶段：还在加载 / 发道具，这一局还没开始开枪。\n\n"
+        "表演方向：\n"
+        "可以暖场、活跃气氛、表达期待，或调侃马上要开始的对局。\n\n"
+        "输出限制：\n"
+        "只说一句短话，最多 30 个字。\n"
+        "不要解说子弹、实弹空弹、膛内情况——现在还没开枪。\n"
+        "不要说自己开了枪、打了谁，也不要编造任何已经发生的对局动作。\n"
+        "不要说工具名、函数名、英文参数。\n"
+        "不要编造当前局面里没有写的事件。"
+    )
+
+
+def build_dealer_turn_block(
+    *,
+    speaker_role: str,
+    controller_name: str,
+    player_cuffed: bool = False,
+) -> str:
+    """庄家回合 / 操作者被铐跳过：现在轮不到你，你只能旁观，别说自己要行动。"""
+    if speaker_role == "操作者":
+        if player_cuffed:
+            lead = "你被庄家铐住了，这一回合你被跳过，只能眼睁睁看着庄家行动。"
+        else:
+            lead = "现在是庄家在行动，不是你的回合。"
+        return (
+            "游戏阶段：庄家的回合。\n"
+            f"{lead}\n\n"
+            "表演方向：\n"
+            "你只能旁观庄家这一手，可以紧张、期待、调侃庄家，或预判他会怎么打。\n\n"
+            "输出限制：\n"
+            "只说一句短话，最多 30 个字。\n"
+            "不要说你要开枪、用道具、做决定——现在轮不到你。\n"
+            "不要复述游戏规则。\n"
+            "不要说工具名、函数名、英文参数。\n"
+            "不要说概率数字。\n"
+            "不要编造当前局面里没有写的事件。"
+        )
+    return (
+        "游戏阶段：庄家的回合。\n"
+        f"现在是庄家在行动，{controller_name} 也只能在旁边看。\n\n"
+        "表演方向：\n"
+        f"你可以吐槽庄家、替 {controller_name} 紧张、或预判庄家会怎么打。\n\n"
+        "输出限制：\n"
+        "只说一句短话，最多 30 个字。\n"
+        f"不要替 {controller_name} 或自己做决定——现在轮到庄家。\n"
+        "不要复述游戏规则。\n"
+        "不要说工具名、函数名、英文参数。\n"
+        "不要说概率数字。\n"
+        "不要编造当前局面里没有写的事件。"
+    )
+
+
 def build_common_identity_block(
     *,
     controller_name: str,
