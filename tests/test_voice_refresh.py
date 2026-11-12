@@ -9,7 +9,7 @@ import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, mock_open, patch
 import xml.etree.ElementTree as ET
 
 
@@ -31,6 +31,8 @@ def voice_modules():
     """Restore sys.modules on exit so these fakes cannot leak to other suites."""
     sdk = types.SimpleNamespace(call=forbidden_io)
     stubs = {
+        "audio": module("audio", __path__=[str(ROOT / "audio")]),
+        "dialogue": module("dialogue", __path__=[str(ROOT / "dialogue")]),
         "numpy": module("numpy"),
         "pyaudiowpatch": module("pyaudiowpatch", paInt16=8, paContinue=0, paComplete=1),
         "dashscope": module("dashscope", api_key="offline-test"),
@@ -54,9 +56,12 @@ def voice_modules():
     }):
         loaded = {}
         for name in names:
-            spec = importlib.util.spec_from_file_location(name, ROOT / (name + ".py"))
+            package = "dialogue" if name == "fast_brain" else "audio"
+            qualified = f"{package}.{name}"
+            spec = importlib.util.spec_from_file_location(qualified, ROOT / package / (name + ".py"))
             loaded[name] = importlib.util.module_from_spec(spec)
-            sys.modules[name] = loaded[name]
+            sys.modules[qualified] = loaded[name]
+            setattr(sys.modules[package], name, loaded[name])
             spec.loader.exec_module(loaded[name])
         with tempfile.TemporaryDirectory() as folder:
             volume = loaded["role_volume"]
@@ -150,6 +155,13 @@ class VoiceRefreshTests(unittest.TestCase):
         self.addCleanup(context.__exit__, None, None, None)
         self.qwen = self.mods.qwen3_tts
         self.qwen.init(pa_instance=FakePA(), log_fn=lambda _: None)
+
+    def test_relocation_preserves_user_resource_paths(self):
+        self.assertEqual(self.mods.role_volume.VOLUME_FILE, ROOT / "role_volumes.json")
+        with patch("builtins.open", mock_open(read_data="A generic local prompt")) as reader:
+            self.assertEqual(self.mods.fast_brain._load_prompt("sample_prompt.md"),
+                             "A generic local prompt")
+        self.assertEqual(Path(reader.call_args.args[0]), ROOT / "sample_prompt.md")
 
     def request_pcm(self, **kwargs):
         return self.qwen.synthesize_sentence_pcm(

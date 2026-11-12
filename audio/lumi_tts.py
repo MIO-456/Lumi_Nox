@@ -20,11 +20,12 @@ import pyaudiowpatch as pyaudio
 from scipy.signal import resample_poly
 from dotenv import load_dotenv
 
-import realtime_chat
-import run_architecture
-import cosyvoice_tts
-import voice_registry as 音色库
-from tts_emitter import BorrowE2EEmitter, IndependentTTSEmitter
+from audio import realtime_chat
+from core import run_architecture
+from core.paths import PROJECT_ROOT
+from audio import cosyvoice_tts
+from settings import voice_registry as 音色库
+from audio.tts_emitter import BorrowE2EEmitter, IndependentTTSEmitter
 
 load_dotenv()
 
@@ -128,7 +129,7 @@ def _resolve_voice_name(speaker):
     """从 voice_config 取该角色的 voice_name（音色库 key）；取不到返回空，
     由 _make_emitter 回退到 CosyVoice 系统音色。"""
     try:
-        from voice_config import get_speaker_config
+        from settings.voice_config import get_speaker_config
         cfg = get_speaker_config(speaker) if speaker else None
         return (getattr(cfg, "voice_name", None) if cfg else None) or ""
     except Exception:
@@ -611,13 +612,13 @@ def run_subtitle_ws_server(port: int = 8767):
         await ws_site.start()
 
         http_app = web.Application()
-        overlay_dir = os.path.join(os.path.dirname(__file__), "overlay")
+        overlay_dir = os.path.join(PROJECT_ROOT, "overlay")
         # 美术素材/ 被 .gitignore 忽略 —— main 仓库下有，worktree 切出来时没有。
         # 优先用本地（main 直接命中），找不到时上溯到 main 仓库（worktree 上溯两级
         # 到 <project-root>/）。这样 worktree 跑直播也能拿到 mio_block 等叠层的图片。
-        _local_assets = os.path.join(os.path.dirname(__file__), "美术素材")
+        _local_assets = os.path.join(PROJECT_ROOT, "美术素材")
         _parent_assets = os.path.normpath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "美术素材")
+            os.path.join(PROJECT_ROOT, "..", "..", "美术素材")
         )
         if os.path.isdir(_local_assets):
             assets_dir = _local_assets

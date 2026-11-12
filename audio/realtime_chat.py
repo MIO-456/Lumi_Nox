@@ -26,8 +26,8 @@ from threading import Event, Lock, RLock
 import websockets
 from websockets.exceptions import InvalidStatus
 
-import realtime_chat_protocol as proto
-import role_volume
+from audio import realtime_chat_protocol as proto
+from audio import role_volume
 
 # ===== 终端颜色（自包含，避免反向依赖 lumi.py）=====
 C_RT = "\033[38;5;81m"     # 浅蓝 — realtime_chat

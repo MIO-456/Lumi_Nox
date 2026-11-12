@@ -2,9 +2,9 @@
 import threading
 import unittest
 
-from event_bus import EventBus
-from speech_output_arbiter import POLICY_INTERRUPT, SpeechOutputArbiter
-from viewer_name import fold_enter_room_inputs, normalize_viewer_name
+from core.event_bus import EventBus
+from core.speech_output_arbiter import POLICY_INTERRUPT, SpeechOutputArbiter
+from dialogue.viewer_name import fold_enter_room_inputs, normalize_viewer_name
 
 
 class CoreRefreshTests(unittest.TestCase):

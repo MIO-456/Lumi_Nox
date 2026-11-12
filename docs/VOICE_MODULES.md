@@ -1,17 +1,17 @@
 # 独立语音模块
 
-这批公开了 Qwen 合成与播放后端，供独立接线使用。`main.py` 仍是无声的标准库演示；现有 `lumi_tts.py` 和 `run_architecture.py` 没有自动切换到 Qwen。这里不包含角色音色或完整直播启动器。
+这批公开了 Qwen 合成与播放后端，供独立接线使用。`main.py` 仍是无声的标准库演示；现有 `audio/lumi_tts.py` 和 `core/run_architecture.py` 没有自动切换到 Qwen。这里不包含角色音色或完整直播启动器。
 
 ## 模块与条件
 
 | 模块 | 用途与使用条件 |
 |---|---|
-| `cosyvoice_tts.py` | 原有流式 CosyVoice，增加首帧超时与有上限的重试；需要自己的服务凭据、兼容音色和音频设备。 |
-| `qwen3_tts.py` | Qwen HTTP SSE 适配、整句 PCM 收集、按文本顺序播放、取消和结果回传；可单独合成而不开声卡。 |
-| `qwen_audio_tts.py` | 把兼容 `tts_v2` 的 Qwen-Audio 服务转换到相同 PCM 接口；必须设置自己的 `QWEN_AUDIO_TTS_WEBSOCKET_URL`，并确认模型、音色及权限匹配。SDK 默认端点并非经过验证的替代品。 |
-| `tts_emitter.py` | 用 `open/feed/finish/abort` 统一合成器生命周期；旧 CosyVoice 调用保持可用，新回调需后端支持。 |
-| `role_volume.py` | 分角色音量、PCM 增益与削波；本地设置 `role_volumes.json` 已忽略，不随源码发布。示例角色键沿用 `Lumi` / `Nox`，不代表提供真实声线。 |
-| `spoken_output.py`、`speech_pauses.py` | 清理格式和控制标签；支持的模型可使用经过校验的停顿。只处理明确格式，不保证识别所有自然语言旁白。 |
+| `audio/cosyvoice_tts.py` | 原有流式 CosyVoice，增加首帧超时与有上限的重试；需要自己的服务凭据、兼容音色和音频设备。 |
+| `audio/qwen3_tts.py` | Qwen HTTP SSE 适配、整句 PCM 收集、按文本顺序播放、取消和结果回传；可单独合成而不开声卡。 |
+| `audio/qwen_audio_tts.py` | 把兼容 `tts_v2` 的 Qwen-Audio 服务转换到相同 PCM 接口；必须设置自己的 `QWEN_AUDIO_TTS_WEBSOCKET_URL`，并确认模型、音色及权限匹配。SDK 默认端点并非经过验证的替代品。 |
+| `audio/tts_emitter.py` | 用 `open/feed/finish/abort` 统一合成器生命周期；旧 CosyVoice 调用保持可用，新回调需后端支持。 |
+| `audio/role_volume.py` | 分角色音量、PCM 增益与削波；本地设置 `role_volumes.json` 已忽略，不随源码发布。示例角色键沿用 `Lumi` / `Nox`，不代表提供真实声线。 |
+| `audio/spoken_output.py`、`audio/speech_pauses.py` | 清理格式和控制标签；支持的模型可使用经过校验的停顿。只处理明确格式，不保证识别所有自然语言旁白。 |
 
 依赖见 [requirements.txt](../requirements.txt)。音频设备路径使用 Windows 的 PyAudioWPatch；标准库演示和离线测试不要求安装这些库。移植其他平台音频输出是额外工作。
 
@@ -24,7 +24,7 @@
 ```python
 import os
 import wave
-import qwen3_tts
+from audio import qwen3_tts
 
 qwen3_tts.init(pa_instance=None)  # 只加载本地配置；此调用不开声卡
 result = qwen3_tts.synthesize_sentence_pcm(

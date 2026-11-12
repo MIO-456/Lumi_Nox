@@ -10,12 +10,13 @@ import threading
 from pathlib import Path
 
 import numpy as np
+from core.paths import PROJECT_ROOT
 
 
 SPEAKERS = ("Lumi", "Nox")
 DEFAULT_VOLUME = 1.0
 MAX_VOLUME = 4.0
-VOLUME_FILE = Path(__file__).with_name("role_volumes.json")
+VOLUME_FILE = PROJECT_ROOT / "role_volumes.json"
 
 
 class RoleVolumeStore:

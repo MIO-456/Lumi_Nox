@@ -120,10 +120,10 @@ python3 -m compileall -q .
 按一条消息从进入到输出的顺序阅读：
 
 1. [main.py](../main.py)：找到 `main()`，看事件总线、状态机、调度器和仲裁器怎样组装；同时认清 `DemoBrain`、`demo_speak()` 两处占位实现。
-2. [speaker_scheduler.py](../speaker_scheduler.py)：跟随 `enqueue_input()`、`pick_speaker()`、`advance_from()`，看观众消息入队、点名选择与轮换。
-3. [speech_output_arbiter.py](../speech_output_arbiter.py)：跟随 `request_start()` 和 `mark_done()`，看发言权如何申请、排队与释放。
-4. [event_bus.py](../event_bus.py) 与 [state_machine.py](../state_machine.py)：看模块如何交换事件、节目状态如何转换。
-5. [整体架构](ARCHITECTURE.md)：再去理解文本链路的 [conversation.py](../conversation.py)、实时语音的 [realtime_chat.py](../realtime_chat.py)，或选择一个[游戏模块](../games/README.md)深入。
+2. [core/speaker_scheduler.py](../core/speaker_scheduler.py)：跟随 `enqueue_input()`、`pick_speaker()`、`advance_from()`，看观众消息入队、点名选择与轮换。
+3. [core/speech_output_arbiter.py](../core/speech_output_arbiter.py)：跟随 `request_start()` 和 `mark_done()`，看发言权如何申请、排队与释放。
+4. [core/event_bus.py](../core/event_bus.py) 与 [core/state_machine.py](../core/state_machine.py)：看模块如何交换事件、节目状态如何转换。
+5. [整体架构](ARCHITECTURE.md)：再去理解文本链路的 [dialogue/conversation.py](../dialogue/conversation.py)、实时语音的 [audio/realtime_chat.py](../audio/realtime_chat.py)，或选择一个[游戏模块](../games/README.md)深入。
 
 演示只在本地保存搭档上一句话，不等于完整历史镜像链路，也不调用长期记忆。更完整的对话编排、镜像和记忆实现在各自模块中。
 

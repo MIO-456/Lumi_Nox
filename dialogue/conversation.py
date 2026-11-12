@@ -17,12 +17,12 @@ from dataclasses import dataclass, field
 from threading import Lock, Event
 from typing import Any, Callable
 
-import fast_brain
-from fast_brain import LLM_TEMPERATURE
-import lumi_tts
-import speech_output_arbiter
-import web_search
-from viewer_name import normalize_viewer_name
+from dialogue import fast_brain
+from dialogue.fast_brain import LLM_TEMPERATURE
+from audio import lumi_tts
+from core import speech_output_arbiter
+from dialogue import web_search
+from dialogue.viewer_name import normalize_viewer_name
 from games.buckshot.prompt_context import (
     COMBAT_PHASES,
     LOADING_PHASES,
@@ -38,7 +38,7 @@ from games.buckshot.prompt_context import (
     items_to_cn_text,
     phase_to_cn,
 )
-from lumi_tts import _rescue_tool_call_json
+from audio.lumi_tts import _rescue_tool_call_json
 
 # 终端颜色（与 lumi.py 保持一致，在此独立定义避免循环导入）
 C_FAST = "\033[36m"          # 青色 — 快脑

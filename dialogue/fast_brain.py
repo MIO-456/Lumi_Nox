@@ -20,6 +20,7 @@
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
+from core.paths import PROJECT_ROOT
 
 load_dotenv()
 
@@ -172,7 +173,7 @@ def _compat_temp():
 
 def _load_prompt(filename: str):
     """从指定提示词文件加载角色 system prompt，取 ``` 代码块中的内容"""
-    path = os.path.join(os.path.dirname(__file__), filename)
+    path = os.path.join(PROJECT_ROOT, filename)
     text = open(path, encoding="utf-8").read()
     # 提取第一个 ``` 代码块
     import re

@@ -54,26 +54,26 @@ These are source modules to study and integrate. Unlike the standard-library
 demo, voice and game integrations need their own services, dependencies and setup;
 their presence here does not make the full livestream runnable from this repo.
 
-- **Realtime dual-session engine** (`realtime_chat.py`, `realtime_chat_protocol.py`)
+- **Realtime dual-session engine** (`audio/realtime_chat.py`, `audio/realtime_chat_protocol.py`)
   — each character runs on its own end-to-end speech-to-speech session (doubao
   SC2.0 over websocket); audio is attributed and routed per speaker, so two
   characters can be live at the same time.
-- **Turn orchestration & cross-character mirroring** (`conversation.py`,
-  `speaker_scheduler.py`) — who speaks next is decided live from @-mentions,
+- **Turn orchestration & cross-character mirroring** (`dialogue/conversation.py`,
+  `core/speaker_scheduler.py`) — who speaks next is decided live from @-mentions,
   partner hand-offs and a prioritized viewer-chat queue; what one says is mirrored
   into the other's context as a labelled stage note to distinguish the partner's
   lines from its own.
-- **Speech-output arbitration** (`speech_output_arbiter.py`) — manages one active
+- **Speech-output arbitration** (`core/speech_output_arbiter.py`) — manages one active
   output with QUEUE / DROP / INTERRUPT policies. The caller reports completion
   with `mark_done()`; a real audio integration must wire playback completion and
   cancellation correctly.
-- **Voice** (`lumi_tts.py`, `cosyvoice_tts.py`, `tts_emitter.py`) — streaming
+- **Voice** (`audio/lumi_tts.py`, `audio/cosyvoice_tts.py`, `audio/tts_emitter.py`) — streaming
   text-to-speech with voice-cloned timbres (CosyVoice), or borrowed from the
   realtime engine as an alternate output path.
-- **Hearing** (`lumi_asr.py`) — streaming speech recognition for live voice input.
-- **Standalone Qwen voice** (`qwen3_tts.py`, `qwen_audio_tts.py`) — complete-sentence
+- **Hearing** (`audio/lumi_asr.py`) — streaming speech recognition for live voice input.
+- **Standalone Qwen voice** (`audio/qwen3_tts.py`, `audio/qwen_audio_tts.py`) — complete-sentence
   PCM, ordered playback, cancellation and outcome reporting, with shared per-character
-  gain in `role_volume.py` and output controls in `speech_pauses.py` / `spoken_output.py`.
+  gain in `audio/role_volume.py` and output controls in `audio/speech_pauses.py` / `audio/spoken_output.py`.
   These backends need explicit integration; the old launcher does not select them.
   See [setup and limitations (中文)](docs/VOICE_MODULES.md).
 - **Long-term memory** (`memory/`) — per-viewer and self memory in SQLite, distilled
@@ -90,9 +90,9 @@ their presence here does not make the full livestream runnable from this repo.
   process**, so the heavy mid-game search never stalls the main loop. The Kingdom Rush
   AI now pairs its algorithmic tower-placement skeleton with a **per-wave LLM strategist**
   that reads the in-game bestiary and adapts the build to each incoming wave.
-- **Fast brain** (`fast_brain.py`) — a per-character lightweight LLM for tool-driven
+- **Fast brain** (`dialogue/fast_brain.py`) — a per-character lightweight LLM for tool-driven
   decisions alongside the realtime voice chat.
-- **Coordination backbone** (`event_bus.py`, `state_machine.py`) — every module talks
+- **Coordination backbone** (`core/event_bus.py`, `core/state_machine.py`) — every module talks
   through an in-process event bus anchored to one global state machine.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
@@ -101,15 +101,10 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 
 ```
 main.py                  # zero-setup co-hosting demo
-event_bus.py             # coordination backbone
-state_machine.py         # global stream state
-speaker_scheduler.py     # turn selection and @-mention routing
-speech_output_arbiter.py # one voice holds the floor at a time
-conversation.py          # text-pipeline orchestration and history mirroring
-realtime_chat*.py        # dual realtime speech-to-speech sessions
-lumi_asr.py / lumi_tts.py / cosyvoice_tts.py / tts_emitter.py
-qwen3_tts.py / qwen_audio_tts.py / role_volume.py
-speech_pauses.py / spoken_output.py
+core/                    # events, state, turn selection and speech arbitration
+dialogue/                # conversations, model calls, viewer names and web search
+audio/                   # ASR, TTS, realtime voice and output processing
+settings/                # example character configuration and voice registry
 interfaces/              # minigame rules, drawing messages and singing asset contracts
 examples/                # offline prototype data and disposable synthetic audio
 memory/                  # SQLite memory, extraction, decay and deterministic facts
@@ -117,6 +112,8 @@ games/                   # one directory per game; shared word-game worker
 docs/                    # architecture and game engineering notes
 tests/                   # zero-dependency public-core checks
 ```
+
+Existing callers should update imports using the [layout migration guide](docs/PACKAGE_LAYOUT.md).
 
 See [games/README.md](games/README.md) for game entry points and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the complete data flow.
@@ -149,7 +146,7 @@ intentionally kept closed.
   realtime voice uses **doubao SC2.0**, and streaming TTS/ASR use **DashScope**
   (CosyVoice / fun-asr). See `.env.example` for the relevant credentials.
 - **Your own voice IDs** — the private cloned-voice registry is not published.
-  `voice_registry.py` resolves the placeholder characters from
+  `settings/voice_registry.py` resolves the placeholder characters from
   `CHARACTER_A_VOICE_ID` / `CHARACTER_B_VOICE_ID` and optional matching
   `*_VOICE_MODEL` variables, otherwise TTS falls back to a system voice.
 - **A Live2D model** — the avatar / motion / expression layer is tied to specific
@@ -157,7 +154,7 @@ intentionally kept closed.
 - **The game** — the game bridge talks to a commercial game over TCP; you supply
   the game itself. The Terraria-side LumiBridge mod source is included and built
   by the bot; see [its setup guide](games/terraria/mod/README.md).
-- **Personas** — `voice_config.py` ships placeholder example characters; the real
+- **Personas** — `settings/voice_config.py` ships placeholder example characters; the real
   Lumi / Nox persona prompts and worldview are intentionally closed.
 
 Vision, drawing, the Live2D motion/expression layer, voiceprints, and the live

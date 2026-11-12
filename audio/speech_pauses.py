@@ -9,7 +9,7 @@ import unicodedata
 import xml.etree.ElementTree as ET
 
 
-from spoken_output import clean_spoken_text
+from audio.spoken_output import clean_spoken_text
 
 TAG = '<break time="400ms"/>'
 MARKER = '\ue000'

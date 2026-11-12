@@ -18,7 +18,7 @@ from dashscope.audio.qwen_tts import SpeechSynthesizer
 from dotenv import load_dotenv
 from scipy.signal import resample_poly
 
-import role_volume
+from audio import role_volume
 
 
 REQUEST_TIMEOUT_SECONDS = 20
@@ -62,7 +62,7 @@ def set_monitor_device(index):
 
 def _stream_synthesis(*, model, voice, text, timeout):
     if model.startswith("qwen-audio-"):
-        from qwen_audio_tts import stream_synthesis
+        from audio.qwen_audio_tts import stream_synthesis
         return stream_synthesis(model=model, voice=voice, text=text, timeout=timeout)
     return SpeechSynthesizer.call(
         model=model,
@@ -601,7 +601,7 @@ class IndependentSynth:
     def feed(self, text, on_audio_start=None, *, before_audio=None, pause_offsets=()):
         if not text:
             return
-        from speech_pauses import render_ssml, supports_pause_tags
+        from audio.speech_pauses import render_ssml, supports_pause_tags
         if pause_offsets and not supports_pause_tags(self._model):
             raise ValueError("This Qwen model has not been enabled for pause controls")
         synthesis_text = render_ssml(text, pause_offsets)

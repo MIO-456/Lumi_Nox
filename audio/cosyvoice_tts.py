@@ -25,7 +25,7 @@ from dashscope.audio.tts_v2 import SpeechSynthesizer, ResultCallback, AudioForma
 from scipy.signal import resample_poly
 from dotenv import load_dotenv
 
-import role_volume
+from audio import role_volume
 
 # ======= 注入依赖（由 init() 设置）=======
 _pa_instance = None

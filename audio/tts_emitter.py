@@ -115,7 +115,7 @@ class IndependentTTSEmitter(TtsEmitter):
 
     @property
     def supports_pause_tags(self):
-        from speech_pauses import supports_pause_tags
+        from audio.speech_pauses import supports_pause_tags
         return (supports_pause_tags(self._model)
                 and bool(getattr(self._synth, "supports_pause_tags", False)))
 

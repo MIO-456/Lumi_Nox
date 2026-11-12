@@ -24,11 +24,11 @@ Run it:
 """
 import time
 
-from event_bus import EventBus
-from state_machine import StateMachine, State
-from speaker_scheduler import SpeakerScheduler
-from speech_output_arbiter import SpeechOutputArbiter, POLICY_QUEUE
-from voice_config import get_speaker_config
+from core.event_bus import EventBus
+from core.state_machine import StateMachine, State
+from core.speaker_scheduler import SpeakerScheduler
+from core.speech_output_arbiter import SpeechOutputArbiter, POLICY_QUEUE
+from settings.voice_config import get_speaker_config
 
 
 # --- demo stand-ins for the key/hardware-gated production modules ------------

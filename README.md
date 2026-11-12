@@ -39,11 +39,11 @@ macOS / Linux 如果使用 `python3` 命令，请将最后一行改为 `python3 
 
 | 关注的问题 | 公开实现 | 从哪里看 |
 |---|---|---|
-| 两位角色怎样轮流接话 | 点名路由、观众消息队列、轮换与跨角色历史镜像 | [speaker_scheduler.py](speaker_scheduler.py)、[conversation.py](conversation.py) |
-| 怎样避免同时占用语音输出 | 发声前申请、完成后释放，支持排队、丢弃和打断策略 | [speech_output_arbiter.py](speech_output_arbiter.py) |
-| 模块怎样共享节目状态 | 进程内事件总线与全局状态机 | [event_bus.py](event_bus.py)、[state_machine.py](state_machine.py) |
-| 怎样接入模型与语音 | 文本快脑、双角色实时语音会话、流式 TTS 与 ASR | [fast_brain.py](fast_brain.py)、[realtime_chat.py](realtime_chat.py)、[lumi_tts.py](lumi_tts.py)、[lumi_asr.py](lumi_asr.py) |
-| 怎样独立接入 Qwen 合成与播放 | 整句 PCM、播放结果、取消与分角色音量 | [语音模块指南](docs/VOICE_MODULES.md)、[qwen3_tts.py](qwen3_tts.py) |
+| 两位角色怎样轮流接话 | 点名路由、观众消息队列、轮换与跨角色历史镜像 | [core/speaker_scheduler.py](core/speaker_scheduler.py)、[dialogue/conversation.py](dialogue/conversation.py) |
+| 怎样避免同时占用语音输出 | 发声前申请、完成后释放，支持排队、丢弃和打断策略 | [core/speech_output_arbiter.py](core/speech_output_arbiter.py) |
+| 模块怎样共享节目状态 | 进程内事件总线与全局状态机 | [core/event_bus.py](core/event_bus.py)、[core/state_machine.py](core/state_machine.py) |
+| 怎样接入模型与语音 | 文本快脑、双角色实时语音会话、流式 TTS 与 ASR | [dialogue/fast_brain.py](dialogue/fast_brain.py)、[audio/realtime_chat.py](audio/realtime_chat.py)、[audio/lumi_tts.py](audio/lumi_tts.py)、[audio/lumi_asr.py](audio/lumi_asr.py) |
+| 怎样独立接入 Qwen 合成与播放 | 整句 PCM、播放结果、取消与分角色音量 | [语音模块指南](docs/VOICE_MODULES.md)、[audio/qwen3_tts.py](audio/qwen3_tts.py) |
 | 怎样延续观众与角色的记忆 | SQLite 存储、事实提取、确定性事实与时间衰减 | [memory/](memory/) |
 | 怎样让 AI 参与游戏 | 恶魔轮盘、泰拉瑞亚、王国保卫战、Wordle、汉兜的桥接与决策代码 | [游戏入口与说明](games/README.md) |
 
@@ -76,20 +76,19 @@ macOS / Linux 如果使用 `python3` 命令，请将最后一行改为 `python3 
 
 ```text
 main.py                   # 标准库终端演示
-event_bus.py / state_machine.py
-speaker_scheduler.py      # 谁接下一句话
-speech_output_arbiter.py  # 谁占用语音输出
-conversation.py           # 文本链路对话编排与历史镜像
-realtime_chat*.py         # 实时语音会话与协议
-lumi_asr.py / lumi_tts.py / cosyvoice_tts.py / tts_emitter.py
-qwen3_tts.py / qwen_audio_tts.py / role_volume.py
-speech_pauses.py / spoken_output.py
+core/                     # 事件、状态、角色调度和语音仲裁
+dialogue/                 # 对话编排、模型调用、观众名称和联网搜索
+audio/                    # ASR、TTS、实时语音与播放处理
+settings/                 # 示例角色配置与音色适配
 interfaces/               # 游戏规则、画板消息和歌曲资产契约
 examples/                 # 无需密钥的原型数据与临时音轨样本
 memory/                   # 记忆存储、提取与衰减
 games/                    # 游戏桥接与决策
 tests/                    # 无外部服务的公开核心检查
+docs/                     # 上手、架构与模块指南
 ```
+
+从旧版本更新的调用者，见[目录迁移与导入对照](docs/PACKAGE_LAYOUT.md)。
 
 ## 检查运行结果
 
@@ -107,6 +106,6 @@ python -m compileall -q .
 
 代码沿用 [MIT 许可证](LICENSE)。角色的真实人设、世界观、角色 IP、声纹与私有音色 ID，以及观众数据库、运行日志和运营资料不在公开范围。Live2D 模型、动作与表情层、视觉、绘画和直播导演／中控台也未包含在这个仓库中；商业游戏本体需自行准备。
 
-`voice_config.py` 提供占位角色配置，`voice_registry.py` 可读取使用者自己的音色变量；具体接入请参考 [.env.example](.env.example) 和对应模块。请使用自己的模型、角色与获准使用的声音素材，真实密钥仅保存在本地。
+`settings/voice_config.py` 提供占位角色配置，`settings/voice_registry.py` 可读取使用者自己的音色变量；具体接入请参考 [.env.example](.env.example) 和对应模块。请使用自己的模型、角色与获准使用的声音素材，真实密钥仅保存在本地。
 
 新增公开模块会先核对隐私、许可与依赖边界；贡献的评审与采用流程见[贡献指南](CONTRIBUTING.md)。
