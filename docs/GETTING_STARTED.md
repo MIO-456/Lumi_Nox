@@ -130,3 +130,5 @@ python3 -m compileall -q .
 想接自己的模型或语音时，再阅读对应代码、[依赖列表](../requirements.txt)、[环境变量示例](../.env.example)与游戏设置说明。公开仓库没有当前直播的完整启动器、导演中控、真实角色人设或角色资产；安装依赖、填好密钥仍需针对具体模块进行集成。
 
 想开始贡献，可以先看[任务与方向](CONTRIBUTION_TASKS.md)。终端交互、复现测试和教程可从公开代码独立开展；新游戏、绘画表现或角色点唱等节目方向，先讨论原型与接入条件，再按[贡献流程](../CONTRIBUTING.md)推进。
+
+原型作者还可以运行 `python -m examples.prototype_contracts`，阅读[最小接口与离线样本](PROTOTYPE_INTERFACES.md)。这条路径同样只需标准库；它展示数据交接，不启动游戏、渲染器或演唱服务。独立 Qwen 后端的调用与配置见[语音模块指南](VOICE_MODULES.md)。

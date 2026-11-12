@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "songs": [
+    {
+      "id": "sample-tone",
+      "title": "测试音轨",
+      "basename": "sample",
+      "singer": "speaker_a",
+      "meaning": "仅用于验证文件交接的一秒合成测试音，不是角色演唱。",
+      "enabled": false,
+      "duration_sec": 1.0,
+      "bpm": 0.0,
+      "subtitle_mode": "single"
+    }
+  ]
+}

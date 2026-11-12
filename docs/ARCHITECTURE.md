@@ -53,6 +53,7 @@ arbiter**. Everything is coordinated over an **event bus** anchored to a global
 | Memory | `memory/` | Per-viewer and self memory in SQLite, distilled by an LLM extractor/summarizer. `decay.py` hides stale unpinned facts at read time without deleting them; `guard_facts.py` deterministically protects membership identity facts. The database itself is never published. |
 | Games | `games/` | Game segments grouped by integration: Buckshot Roulette; Terraria (bundled focus-safe tModLoader bridge, A* pathfinding and five-layer goal planner; see `games/terraria/mod/README.md` and `docs/games/terraria-behavior-tree.md`); Kingdom Rush (LuaJIT bridge and per-wave LLM strategist; see `docs/games/kingdom-rush-reverse-engineering.md`); and the Wordle/Handle frontends with a shared isolated entropy-solver worker. Commercial game binaries are not included. |
 | Per-character config | `voice_config.py` | Voice, avatar model, subtitle, audio routing (placeholder example characters). |
+| Prototype boundaries | `interfaces/`, `examples/` | Extracted lightweight game protocol, drawing message shapes and song asset records, with synthetic offline samples. No game host, drawing server or singing service is included; see [prototype guide](PROTOTYPE_INTERFACES.md). |
 
 ## Configuration and credentials
 

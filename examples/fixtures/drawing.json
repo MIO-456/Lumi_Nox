@@ -1,0 +1,20 @@
+{
+  "type": "draw",
+  "draw_id": "sample-drawing-1",
+  "title": "几何测试图",
+  "title_short": "几何测试图",
+  "canvas_width": 800,
+  "canvas_height": 600,
+  "draw_rect": [40, 40, 760, 560],
+  "strokes": [
+    [[200, 200], [300, 200], [400, 200], [400, 300], [400, 400]],
+    [[400, 400], [300, 400], [200, 400], [200, 300], [200, 200]]
+  ],
+  "line_width": 4,
+  "stroke_palette": ["#3050a0", "#b05030"],
+  "anim_interval_ms": 20,
+  "stroke_pause_ms": 100,
+  "display_duration_ms": 30000,
+  "visual_timeout_ms": 5000,
+  "started_at_ms": 0
+}

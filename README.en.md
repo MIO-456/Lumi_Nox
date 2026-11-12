@@ -110,6 +110,8 @@ realtime_chat*.py        # dual realtime speech-to-speech sessions
 lumi_asr.py / lumi_tts.py / cosyvoice_tts.py / tts_emitter.py
 qwen3_tts.py / qwen_audio_tts.py / role_volume.py
 speech_pauses.py / spoken_output.py
+interfaces/              # minigame rules, drawing messages and singing asset contracts
+examples/                # offline prototype data and disposable synthetic audio
 memory/                  # SQLite memory, extraction, decay and deterministic facts
 games/                   # one directory per game; shared word-game worker
 docs/                    # architecture and game engineering notes
@@ -120,6 +122,10 @@ See [games/README.md](games/README.md) for game entry points and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the complete data flow.
 The [2026-11-12 update notes (中文)](docs/releases/2026-11-12-source-refresh.md)
 describe the ported improvements and the limits of offline verification.
+Small [prototype contracts and samples (中文)](docs/PROTOTYPE_INTERFACES.md) are
+available for new-game, drawing and singing experiments. Run
+`python -m examples.prototype_contracts` without dependencies or keys. These are
+data contracts and fixtures; the production hosts and services are not included.
 
 ## Getting started
 
@@ -178,7 +184,8 @@ welcome: a new game, a new way to present drawings, or support for character son
 requests. Song requests could use an existing character song library or explore
 producing new performances on request; the approach is still open. These are **discussion
 directions**, not published integrations or promised livestream features.
-The maintainer will provide agreed minimal interfaces, samples and acceptance
+Minimal [contracts and offline samples](docs/PROTOTYPE_INTERFACES.md) are now
+published. The maintainer still provides production wiring and agrees acceptance
 criteria before work that depends on private runtime components begins.
 
 You can also start entirely within the public repo: extend the terminal demo,
