@@ -2,7 +2,19 @@ import sqlite3
 from pathlib import Path
 
 from memory.identity import legacy_identity
-from memory.models import FACT_INVALID, STATUS_PENDING
+from memory.models import FACT_ACTIVE, FACT_INVALID, STATUS_PENDING
+
+
+PREFERRED_NAME_FACT_KEYS = (
+    "preferred_name",
+    "preferred_nickname",
+    "nickname",
+    "preferred_call_name",
+    "preferred_call",
+    "preferred_calling",
+    "call_name",
+    "preferred_address",
+)
 
 
 class MemoryStorage:
@@ -407,6 +419,111 @@ class MemoryStorage:
             )
         return cur.lastrowid
 
+    def store_viewer_fact_if_newer(
+        self,
+        identity_key,
+        display_name,
+        category,
+        fact_key,
+        fact_value,
+        confidence,
+        source_message_id,
+        created_at,
+    ):
+        """原子写入自动观众事实，并拒绝人工覆盖和旧消息重放。"""
+        canonical_key, conflict_keys = self._viewer_fact_conflict_domain(category, fact_key)
+        placeholders = ",".join("?" for _ in conflict_keys)
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            manual = conn.execute(
+                f"""
+                SELECT 1 FROM viewer_facts
+                WHERE identity_key = ? AND category = ?
+                  AND fact_key IN ({placeholders})
+                  AND status = ? AND source IN ('manual', 'human')
+                LIMIT 1
+                """,
+                (identity_key, category, *conflict_keys, FACT_ACTIVE),
+            ).fetchone()
+            if manual is not None:
+                conn.commit()
+                return "manual_blocked"
+
+            latest = conn.execute(
+                f"""
+                SELECT MAX(source_message_id) AS max_source_message_id
+                FROM viewer_facts
+                WHERE identity_key = ? AND category = ?
+                  AND fact_key IN ({placeholders})
+                  AND source NOT IN ('manual', 'human')
+                """,
+                (identity_key, category, *conflict_keys),
+            ).fetchone()
+            max_source_message_id = latest["max_source_message_id"]
+            if (
+                max_source_message_id is not None
+                and source_message_id <= max_source_message_id
+            ):
+                conn.commit()
+                return "stale"
+
+            conn.execute(
+                f"""
+                UPDATE viewer_facts
+                SET status = ?, invalidated_at = ?, updated_at = ?
+                WHERE identity_key = ? AND category = ?
+                  AND fact_key IN ({placeholders})
+                  AND status = ? AND source NOT IN ('manual', 'human')
+                """,
+                (
+                    FACT_INVALID,
+                    created_at,
+                    created_at,
+                    identity_key,
+                    category,
+                    *conflict_keys,
+                    FACT_ACTIVE,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO viewer_facts (
+                    identity_key, viewer_name, category, fact_key, fact_value, confidence,
+                    source_message_id, status, created_at, updated_at, invalidated_at,
+                    source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    identity_key,
+                    display_name,
+                    category,
+                    canonical_key,
+                    fact_value,
+                    confidence,
+                    source_message_id,
+                    FACT_ACTIVE,
+                    created_at,
+                    created_at,
+                    None,
+                    "llm",
+                ),
+            )
+            conn.commit()
+            return "stored"
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _viewer_fact_conflict_domain(category, fact_key):
+        if category == "identity" and fact_key in PREFERRED_NAME_FACT_KEYS:
+            return "preferred_name", PREFERRED_NAME_FACT_KEYS
+        return fact_key, (fact_key,)
+
     def has_active_viewer_fact(self, identity_key, category, fact_key):
         """检查同三元组下是否存在任意来源的 active fact（用于确定性兜底写入前去重）。"""
         with self._connect() as conn:
@@ -444,14 +561,14 @@ class MemoryStorage:
         return [dict(row) for row in rows]
 
     def has_manual_viewer_fact(self, identity_key, category, fact_key):
-        """检查同三元组下是否存在 manual 来源的 active fact。
+        """检查同三元组下是否存在 manual/human 来源的 active fact。
         如果有，LLM 抽出的新 fact 应当跳过覆盖以保护人工修正。"""
         with self._connect() as conn:
             r = conn.execute(
                 """
                 SELECT 1 FROM viewer_facts
                 WHERE identity_key = ? AND category = ? AND fact_key = ?
-                  AND status = 'active' AND source = 'manual'
+                  AND status = 'active' AND source IN ('manual', 'human')
                 LIMIT 1
                 """,
                 (identity_key, category, fact_key),
@@ -527,14 +644,129 @@ class MemoryStorage:
             )
         return cur.lastrowid
 
+    def store_agent_fact_if_newer(
+        self,
+        agent_name,
+        category,
+        fact_key,
+        fact_value,
+        confidence,
+        source_message_id,
+        created_at,
+        keep_limit=3,
+    ):
+        """原子写入自动主播事实，并在同一事务中完成分类配额裁剪。"""
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            manual = conn.execute(
+                """
+                SELECT 1 FROM agent_facts
+                WHERE agent_name = ? AND category = ? AND fact_key = ?
+                  AND status = ? AND source IN ('manual', 'human')
+                LIMIT 1
+                """,
+                (agent_name, category, fact_key, FACT_ACTIVE),
+            ).fetchone()
+            if manual is not None:
+                conn.commit()
+                return "manual_blocked"
+
+            latest = conn.execute(
+                """
+                SELECT MAX(source_message_id) AS max_source_message_id
+                FROM agent_facts
+                WHERE agent_name = ? AND category = ? AND fact_key = ?
+                  AND source NOT IN ('manual', 'human')
+                """,
+                (agent_name, category, fact_key),
+            ).fetchone()
+            max_source_message_id = latest["max_source_message_id"]
+            if (
+                max_source_message_id is not None
+                and source_message_id <= max_source_message_id
+            ):
+                conn.commit()
+                return "stale"
+
+            conn.execute(
+                """
+                UPDATE agent_facts
+                SET status = ?, invalidated_at = ?, updated_at = ?
+                WHERE agent_name = ? AND category = ? AND fact_key = ?
+                  AND status = ? AND source NOT IN ('manual', 'human')
+                """,
+                (
+                    FACT_INVALID,
+                    created_at,
+                    created_at,
+                    agent_name,
+                    category,
+                    fact_key,
+                    FACT_ACTIVE,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO agent_facts (
+                    agent_name, category, fact_key, fact_value, confidence,
+                    source_message_id, status, created_at, updated_at, invalidated_at,
+                    source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    agent_name,
+                    category,
+                    fact_key,
+                    fact_value,
+                    confidence,
+                    source_message_id,
+                    FACT_ACTIVE,
+                    created_at,
+                    created_at,
+                    None,
+                    "llm",
+                ),
+            )
+
+            rows = conn.execute(
+                """
+                SELECT id FROM agent_facts
+                WHERE agent_name = ? AND category = ? AND status = ?
+                  AND source NOT IN ('manual', 'human')
+                ORDER BY updated_at DESC, confidence DESC, id DESC
+                """,
+                (agent_name, category, FACT_ACTIVE),
+            ).fetchall()
+            overflow_ids = [row["id"] for row in rows[keep_limit:]]
+            if overflow_ids:
+                overflow_placeholders = ",".join("?" for _ in overflow_ids)
+                conn.execute(
+                    f"""
+                    UPDATE agent_facts
+                    SET status = ?, invalidated_at = ?, updated_at = ?
+                    WHERE id IN ({overflow_placeholders})
+                    """,
+                    (FACT_INVALID, created_at, created_at, *overflow_ids),
+                )
+
+            conn.commit()
+            return "stored"
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def has_manual_agent_fact(self, agent_name, category, fact_key):
-        """检查同三元组下是否存在 manual 来源的 active agent fact。"""
+        """检查同三元组下是否存在 manual/human 来源的 active agent fact。"""
         with self._connect() as conn:
             r = conn.execute(
                 """
                 SELECT 1 FROM agent_facts
                 WHERE agent_name = ? AND category = ? AND fact_key = ?
-                  AND status = 'active' AND source = 'manual'
+                  AND status = 'active' AND source IN ('manual', 'human')
                 LIMIT 1
                 """,
                 (agent_name, category, fact_key),
@@ -659,6 +891,43 @@ class MemoryStorage:
     def list_pending_viewer_messages_for_fact(self, session_id):
         return self._list_pending_viewer_messages(session_id, "fact_status")
 
+    def list_pending_session_ids(self):
+        """Return every persisted session that still needs fact/summary work."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT session_id, MIN(created_at) AS first_created_at
+                FROM (
+                    SELECT session_id, created_at
+                    FROM viewer_messages
+                    WHERE session_id IS NOT NULL
+                      AND session_id != ''
+                      AND (fact_status = 'pending' OR summary_status = 'pending')
+                    UNION ALL
+                    SELECT session_id, created_at
+                    FROM agent_messages
+                    WHERE session_id IS NOT NULL
+                      AND session_id != ''
+                      AND (fact_status = 'pending' OR summary_status = 'pending')
+                )
+                GROUP BY session_id
+                ORDER BY first_created_at ASC, session_id ASC
+                """
+            ).fetchall()
+        return [str(row["session_id"]) for row in rows]
+
+    def list_viewer_messages_for_fact_context(self, session_id):
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM viewer_messages
+                WHERE session_id = ?
+                ORDER BY id ASC
+                """,
+                (session_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def list_pending_viewer_messages_for_summary(self, session_id):
         return self._list_pending_viewer_messages(session_id, "summary_status")
 
@@ -733,40 +1002,40 @@ class MemoryStorage:
         )
 
     def invalidate_viewer_fact(self, identity_key, category, fact_key, invalidated_at):
-        # 不 invalidate source='manual'：保护人工修正不被 LLM 自动覆盖
+        # 不 invalidate 人工来源：保护人工修正不被 LLM 自动覆盖
         with self._connect() as conn:
             conn.execute(
                 """
                 UPDATE viewer_facts
                 SET status = ?, invalidated_at = ?, updated_at = ?
                 WHERE identity_key = ? AND category = ? AND fact_key = ?
-                  AND status = 'active' AND source != 'manual'
+                  AND status = 'active' AND source NOT IN ('manual', 'human')
                 """,
                 (FACT_INVALID, invalidated_at, invalidated_at, identity_key, category, fact_key),
             )
 
     def invalidate_agent_fact(self, agent_name, category, fact_key, invalidated_at):
-        # 不 invalidate source='manual'：保护人工修正不被 LLM 自动覆盖
+        # 不 invalidate 人工来源：保护人工修正不被 LLM 自动覆盖
         with self._connect() as conn:
             conn.execute(
                 """
                 UPDATE agent_facts
                 SET status = ?, invalidated_at = ?, updated_at = ?
                 WHERE agent_name = ? AND category = ? AND fact_key = ?
-                  AND status = 'active' AND source != 'manual'
+                  AND status = 'active' AND source NOT IN ('manual', 'human')
                 """,
                 (FACT_INVALID, invalidated_at, invalidated_at, agent_name, category, fact_key),
             )
 
     def prune_agent_active_facts(self, agent_name, category, keep_limit, invalidated_at):
-        # agent fact 配额裁剪时，manual 来源不计入 prune，永远保留 active
+        # agent fact 配额裁剪时，人工来源不计入 prune，永远保留 active
         with self._connect() as conn:
             rows = conn.execute(
                 """
                 SELECT id
                 FROM agent_facts
                 WHERE agent_name = ? AND category = ? AND status = 'active'
-                  AND source != 'manual'
+                  AND source NOT IN ('manual', 'human')
                 ORDER BY updated_at DESC, confidence DESC, id DESC
                 """,
                 (agent_name, category),

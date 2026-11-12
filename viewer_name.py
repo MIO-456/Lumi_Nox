@@ -4,14 +4,51 @@
 文本"的那一份名字，避免 bili_ 长数字默认名被照读、多人进房被逐个念名字。
 """
 import re
+import unicodedata
 
-_BILI_DEFAULT_NAME = re.compile(r"^bili_\d+$")
+_BILI_DEFAULT_NAME = re.compile(r"^(?:bili_\d+|\d+_bili)$", re.IGNORECASE)
+
+
+def _is_han(char: str) -> bool:
+    """是否为 CJK 统一/兼容表意文字。"""
+    name = unicodedata.name(char, "")
+    return name.startswith((
+        "CJK UNIFIED IDEOGRAPH-",
+        "CJK COMPATIBILITY IDEOGRAPH-",
+    ))
+
+
+def _is_latin_letter(char: str) -> bool:
+    """是否为拉丁文字母（含重音字母，不把数字和标点算进来）。"""
+    return unicodedata.category(char).startswith("L") and "LATIN" in unicodedata.name(char, "")
 
 
 def normalize_viewer_name(name: str) -> str:
-    """B 站默认用户名 bili_<纯数字> → "B站用户"；其余昵称原样返回。"""
-    if name and _BILI_DEFAULT_NAME.match(name):
+    """生成只供模型使用的可朗读用户名，真实显示名和记忆键不经过这里。
+
+    B站默认名先替换为通用称呼；其余名称经过 NFKC 规范化后，严格按
+    汉字 > 拉丁字母 > 数字选择一种字符并保持原顺序。只含日文假名、
+    韩文、Emoji 等未分类字符的特殊名称原样返回。
+    """
+    if not name:
+        return name
+
+    normalized = unicodedata.normalize("NFKC", name.strip())
+    if _BILI_DEFAULT_NAME.fullmatch(normalized):
         return "B站用户"
+
+    han = "".join(char for char in normalized if _is_han(char))
+    if han:
+        return han
+
+    latin = "".join(char for char in normalized if _is_latin_letter(char))
+    if latin:
+        return latin
+
+    digits = "".join(char for char in normalized if char.isdecimal())
+    if digits:
+        return digits
+
     return name
 
 
@@ -50,7 +87,11 @@ def fold_enter_room_inputs(items, *, is_recognized, normalize=normalize_viewer_n
         if len(old_fan_names) >= max_named:
             break
         if is_recognized(it):
-            old_fan_names.append(normalize(it.get("speaker", "")))
+            normalized_name = normalize(it.get("speaker", ""))
+            if normalized_name and normalized_name not in old_fan_names:
+                old_fan_names.append(normalized_name)
+                if len(old_fan_names) >= max_named:
+                    break
 
     if old_fan_names:
         names = "、".join(f"「{n}」" for n in old_fan_names)

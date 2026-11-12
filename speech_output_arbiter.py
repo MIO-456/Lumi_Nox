@@ -124,6 +124,17 @@ class SpeechOutputArbiter:
         with self._lock:
             return self.cancel_current_locked(reason)
 
+    def cancel_if_current(self, output_id: str, reason: str = "cancelled") -> dict:
+        """Cancel only the named output; never let a stale game event stop new speech."""
+        with self._lock:
+            if not self._current or self._current.output_id != output_id:
+                return {
+                    "status": "not_current",
+                    "current_output_id": self._current.output_id if self._current else None,
+                }
+            cancelled = self.cancel_current_locked(reason)
+            return {"status": "cancelled", "output_id": cancelled.output_id}
+
     def cancel_current_locked(self, reason: str) -> SpeechOutput | None:
         if not self._current:
             return None

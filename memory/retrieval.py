@@ -47,12 +47,6 @@ def build_memory_context(storage, identity_key, agent_name, current_input, inclu
         lines = [f"- {item['summary_text']}" for item in matched_viewer]
         sections.append("## 你和这个观众之前聊过的相关内容\n" + "\n".join(lines))
 
-    if not viewer_facts and not matched_viewer:
-        raw_messages = storage.list_recent_viewer_messages(identity_key=identity_key, limit=3)
-        if raw_messages:
-            lines = [f"- {item['message_text']}" for item in raw_messages]
-            sections.append("## 这个观众最近原始发言摘录\n" + "\n".join(lines))
-
     return "\n\n".join(sections)
 
 

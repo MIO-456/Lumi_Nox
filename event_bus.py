@@ -19,11 +19,18 @@ class Event:
     timestamp: float = field(default_factory=time.time)
     correlation_id: Optional[str] = None
     _respond_fn: Optional[Callable] = field(default=None, repr=False)
+    _is_active_fn: Optional[Callable[[], bool]] = field(default=None, repr=False)
 
     def respond(self, data: dict):
         """请求-响应模式：订阅方调用此方法回复请求方"""
         if self._respond_fn:
-            self._respond_fn(data)
+            return bool(self._respond_fn(data))
+        return False
+
+    @property
+    def is_active(self) -> bool:
+        """Whether the requester is still waiting for this response."""
+        return bool(self._is_active_fn and self._is_active_fn())
 
 
 class EventBus:
@@ -65,26 +72,49 @@ class EventBus:
         correlation_id = uuid.uuid4().hex[:12]
         response_event = threading.Event()
         response_data = {}
+        response_lock = threading.Lock()
+        request_state = {"active": True}
 
         def on_respond(resp: dict):
-            response_data.update(resp)
-            response_event.set()
+            with response_lock:
+                if not request_state["active"]:
+                    return False
+                response_data.clear()
+                response_data.update(resp)
+                response_event.set()
+                return True
+
+        def is_active():
+            with response_lock:
+                return request_state["active"]
 
         event = Event(
             event_type=event_type, data=data, source=source,
             correlation_id=correlation_id, _respond_fn=on_respond,
+            _is_active_fn=is_active,
         )
         self._record(event)
         with self._lock:
             callbacks = list(self._subscribers.get(event_type, []))
-        for cb in callbacks:
-            try:
-                cb(event)
-            except Exception:
-                logger.exception(f"请求处理异常: {event_type} from {source}")
+        def dispatch_request():
+            for cb in callbacks:
+                try:
+                    cb(event)
+                except Exception:
+                    logger.exception(f"请求处理异常: {event_type} from {source}")
+
+        threading.Thread(
+            target=dispatch_request,
+            name=f"event-request-{event_type}-{correlation_id}",
+            daemon=True,
+        ).start()
 
         if response_event.wait(timeout=timeout):
-            return response_data
+            with response_lock:
+                request_state["active"] = False
+                return dict(response_data)
+        with response_lock:
+            request_state["active"] = False
         logger.warning(f"请求超时: {event_type} from {source} (correlation={correlation_id})")
         self.publish("request_timeout", {
             "original_event": event_type,

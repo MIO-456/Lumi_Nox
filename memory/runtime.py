@@ -24,7 +24,7 @@ from memory.summarizer import (
 )
 
 DEFAULT_BATCH_MODEL_NAME = "doubao-seed-2-0-mini"
-DEFAULT_BATCH_MODEL_VERSION = "260215"
+DEFAULT_BATCH_MODEL_VERSION = "260428"
 
 
 class MemoryRuntime:

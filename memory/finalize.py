@@ -40,7 +40,7 @@ from memory.summarizer import (
 
 load_dotenv()
 
-MODEL_ID = "doubao-seed-2-0-mini-260215"
+MODEL_ID = "doubao-seed-2-0-mini-260428"
 TEMPERATURE = 0.3
 # 思考模式开启后，输出 token 配额需要给思考过程留空间，否则最终 JSON 可能被截断
 MAX_TOKENS = 2000
@@ -116,6 +116,63 @@ def _process_rows_concurrent(rows, system_prompt: str, task_type: str, concurren
         for fut in as_completed(futures):
             results.append(fut.result())
     return results
+
+
+def finalize_pending_sessions(
+    storage,
+    *,
+    session_ids,
+    concurrency: int = DEFAULT_CONCURRENCY,
+    include_agent: bool = True,
+    log_fn=None,
+) -> dict:
+    """Finalize the explicit session lineage of one live broadcast.
+
+    Hot restart only archives raw messages.  A later normal shutdown calls this
+    function with the session ids carried by the hot-restart checkpoint.  It
+    must never infer broadcast ownership from the database-wide pending flag.
+    Per-session failure is isolated and untouched rows remain retryable.
+    """
+    log = log_fn or (lambda s: None)
+    session_ids = list(
+        dict.fromkeys(
+            str(session_id or "").strip()
+            for session_id in (session_ids or [])
+            if str(session_id or "").strip()
+        )
+    )
+    if not session_ids:
+        log("[记忆·会话结束] 本场没有记忆 session，跳过提取")
+        return {"processed": [], "failed": []}
+
+    log(
+        f"[记忆·会话结束] 正常下播处理本场 {len(session_ids)} 个 session"
+    )
+    processed = []
+    failed = []
+    for session_id in session_ids:
+        log(f"[记忆·会话结束] 开始处理 session={session_id}")
+        try:
+            finalize_session_memory(
+                storage,
+                session_id,
+                concurrency=concurrency,
+                include_agent=include_agent,
+                log_fn=log,
+            )
+            processed.append(session_id)
+        except Exception as exc:
+            failed.append({"session_id": session_id, "error": str(exc)})
+            log(
+                f"[记忆·会话结束] session={session_id} 处理失败，"
+                f"保留 pending 下次重试：{type(exc).__name__}: {exc}"
+            )
+
+    log(
+        f"[记忆·会话结束] 本场处理结束：成功 {len(processed)}，"
+        f"失败 {len(failed)}"
+    )
+    return {"processed": processed, "failed": failed}
 
 
 def finalize_session_memory(
