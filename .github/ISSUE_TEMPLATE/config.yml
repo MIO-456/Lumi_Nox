@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 贡献指南 / Contribution guide
+    url: https://github.com/MIO-456/Lumi_Nox/blob/main/CONTRIBUTING.md
+    about: 了解如何运行检查、提交 PR，以及公开贡献与正式直播的边界。
+  - name: 可以一起做什么 / Contribution tasks
+    url: https://github.com/MIO-456/Lumi_Nox/blob/main/docs/CONTRIBUTION_TASKS.md
+    about: 浏览可独立开始的任务和需要先讨论的功能方向。

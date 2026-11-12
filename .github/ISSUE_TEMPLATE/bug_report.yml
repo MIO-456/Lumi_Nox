@@ -1,0 +1,61 @@
+name: 问题报告 / Bug report
+description: 提交可复现的问题，帮助定位公开代码或文档的故障。
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        谢谢你帮助改进项目。请先搜索已有 Issue；中文或英文均可。
+        日志和截图请先移除 API 密钥、Cookie、私人聊天及个人信息。
+  - type: input
+    id: version
+    attributes:
+      label: 仓库版本 / Repository version
+      description: Release 标签或 commit hash；不清楚时说明下载时间和来源。
+      placeholder: "例如：v0.6.0，或 git rev-parse --short HEAD 的输出"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 运行环境 / Environment
+      description: 写明系统、Python 版本、运行入口；与问题相关时补充游戏、依赖或服务版本。文档问题可写“不适用”。
+      placeholder: |
+        系统：
+        Python 版本：
+        运行入口或文档位置：
+        其他相关版本（如有）：
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      description: 从启动命令开始，给出能复现问题的最小步骤和测试输入；偶发问题请说明频率。
+      placeholder: |
+        1. 执行……
+        2. 输入或操作……
+        3. 出现……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果 / Expected behavior
+      description: 你希望发生什么？
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果 / Actual behavior
+      description: 实际发生了什么？可附最小报错片段或截图。
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 补充证据 / Additional evidence
+      description: 可选，附脱敏日志、最小复现代码，或已经尝试过的排查方法。
+    validations:
+      required: false

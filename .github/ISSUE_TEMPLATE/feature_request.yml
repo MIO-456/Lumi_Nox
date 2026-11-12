@@ -1,0 +1,49 @@
+name: 功能建议 / Feature proposal
+description: 讨论新游戏、节目功能、公开模块改进或教程与演示。
+title: "[Feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        新游戏、新节目和较大改动先在这里讨论。中文或英文均可。
+        可先看[贡献任务](https://github.com/MIO-456/Lumi_Nox/blob/main/docs/CONTRIBUTION_TASKS.md)；小修复可以直接提 PR。
+        若依赖未公开的直播接口，请说明缺口，和维护者确定范围后再实施。
+  - type: textarea
+    id: value
+    attributes:
+      label: 想解决什么问题 / Problem and value
+      description: 谁会在什么场景下使用？对节目内容、观众互动或开发使用有什么具体价值？
+      placeholder: 当前……，希望……，这样可以……
+    validations:
+      required: true
+  - type: textarea
+    id: deliverable
+    attributes:
+      label: 第一版可以交付什么 / First deliverable
+      description: 描述一个范围小、可演示或验证的结果。暂时只有想法也可以，说明尚需确定的部分。
+      placeholder: |
+        第一版做什么：
+        如何演示或确认有效：
+        需要哪些接口、数据或环境（如有）：
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: 参考与已有尝试 / References and prior work
+      description: 可选，附已有 Issue、自己的原型、相关项目或素材来源与许可信息。
+    validations:
+      required: false
+  - type: dropdown
+    id: participation
+    attributes:
+      label: 你愿意参与哪一部分 / Participation
+      description: 可选，仅帮助协调；提交建议不要求承担实现。
+      multiple: true
+      options:
+        - 编写代码或原型 / Code or prototype
+        - 测试或复现 / Testing
+        - 教程或演示 / Tutorial or demo
+        - 暂时只提供建议 / Suggestion only
+    validations:
+      required: false
