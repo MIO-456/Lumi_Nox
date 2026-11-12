@@ -228,6 +228,9 @@ def compute_entropy(guess: ParsedIdiom, candidates: list[ParsedIdiom]) -> float:
     return entropy
 
 
+ENTROPY_SAMPLE_LIMIT = 400  # 每个猜测最多使用这么多候选估算信息熵
+# 双重采样限制计算量；结果是近似排名，不保证与全量计算或上一次运行相同。
+
 def get_best_guesses(
     candidates: list[ParsedIdiom],
     n: int = 5,
@@ -236,19 +239,24 @@ def get_best_guesses(
     """
     返回信息熵最高的 N 个猜测词。
 
-    候选 > sample_limit 时抽样计算（避免 O(n²) 过慢）。
+    大候选集下**双重抽样**避免 O(n²)：eval_pool 限制"评估哪些词"，entropy_pool 限制"用多少候选估熵"。
     """
     if len(candidates) <= 2:
         return [(c.word, 0.0) for c in candidates[:n]]
 
-    # 大候选集：抽样计算熵
+    # 评估池：只对这些词算熵、选最优
     eval_pool = candidates
     if len(candidates) > sample_limit:
         eval_pool = random.sample(candidates, sample_limit)
 
+    # 估熵池：算每个词的熵时用的候选样本（关键提速点——不再遍历全部候选）
+    entropy_pool = candidates
+    if len(candidates) > ENTROPY_SAMPLE_LIMIT:
+        entropy_pool = random.sample(candidates, ENTROPY_SAMPLE_LIMIT)
+
     scored = []
     for idiom in eval_pool:
-        e = compute_entropy(idiom, candidates)
+        e = compute_entropy(idiom, entropy_pool)
         scored.append((idiom.word, e))
 
     scored.sort(key=lambda x: -x[1])

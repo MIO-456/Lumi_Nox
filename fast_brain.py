@@ -34,6 +34,16 @@ _qwen_client = OpenAI(
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
 )
 # 品牌推理参数配置：每个品牌一套独立参数
+# Format-control suppression for the registered Character models.
+_CHARACTER_FORMAT_LOGIT_BIAS = dict.fromkeys([
+    "861", "854", "135", "136", "2426", "2425", "186", "188", "218", "220",  # 括号
+    "118511", "7257", "7935", "3841", "3800",  # [N、[引号、引号]
+    "523", "3295", "1453", "9953",  # 空格+括号
+    "5991", "2549", "34978", "16833", "1333", "6975", "29011",  # 成对/重复括号
+    "187", "8473", "43690", "25569", "9458", "8742", "101073",  # 反斜杠/转义组合
+    "191", "3836", "6973", "34110",  # 反引号/代码围栏
+], -100)
+
 _BRAND_PARAMS = {
     "doubao": {
         "temperature": 1.0,
@@ -66,16 +76,13 @@ _BRAND_PARAMS = {
         "logit_bias": {},
         "extra_body": {"enable_thinking": False},
     },
-    # 豆包角色扮演模型专用品牌：复用 doubao 的采样/惩罚参数，但 logit_bias 留空——
-    # doubao 品牌那套括号/穿帮词封禁的 token id 只在 2.0-mini/lite 上实测一致，角色模型
-    # 是不同模型、分词器可能不同，套用旧 id 会误封随机 token、污染输出；改靠出声层的
-    # 括号过滤兜底（lumi_tts / conversation 的 _output_filtered）。思考默认关压延迟。
+    # Character 两版本共用已验证的格式抑制；不照搬 doubao 的穿帮词封禁。
     "doubao_character": {
         "temperature": 1.0,
         "top_p": 0.7,
         "frequency_penalty": 0.5,
         "presence_penalty": 0.5,
-        "logit_bias": {},
+        "logit_bias": _CHARACTER_FORMAT_LOGIT_BIAS,
         "extra_body": {"thinking": {"type": "disabled"}},
     },
     "openai": {
@@ -90,18 +97,19 @@ _BRAND_PARAMS = {
 
 # 模型注册表：key → (显示名, client, model_id, 品牌key)
 LLM_MODELS = {
-    "2.0-mini":     ("Doubao 2.0 Mini",   _ark_client,   "doubao-seed-2-0-mini-260215", "doubao"),
+    "2.0-mini":     ("Doubao 2.0 Mini",   _ark_client,   "doubao-seed-2-0-mini-260428", "doubao"),
     "2.0-lite":     ("Doubao 2.0 Lite",   _ark_client,   "doubao-seed-2-0-lite-260428", "doubao"),
     "1.6-flash":    ("Doubao 1.6 Flash",  _ark_client,   "doubao-seed-1-6-flash-250828", "doubao"),
     "qwen3.5-flash":("Qwen 3.5 Flash",    _qwen_client,  "qwen3.5-flash", "qwen"),
     # 角色扮演专调模型（同方舟接口，复用 _ark_client）。仅用于聊天环节：不支持工具调用，
     # 游戏决策的带工具请求会经 resolve_call_target 自动回退到支持工具的模型。
-    "character":    ("Doubao 角色扮演",   _ark_client,   "doubao-seed-character-251128", "doubao_character"),
+    "character":        ("Doubao Character 251128", _ark_client, "doubao-seed-character-251128", "doubao_character"),
+    "character-260628": ("Doubao Character 260628", _ark_client, "doubao-seed-character-260628", "doubao_character"),
 }
 
 # 不支持工具调用（function calling）的模型 key。带工具的请求（游戏决策）落到这些模型上
 # 会失效，需回退到支持工具的模型来发那一次请求。
-_NO_TOOL_MODELS = {"character"}
+_NO_TOOL_MODELS = {"character", "character-260628"}
 # 选中模型不支持工具时，带工具的请求回退到这个模型（仍走方舟、参数干净）。
 TOOL_FALLBACK_MODEL_KEY = "2.0-lite"
 

@@ -12,6 +12,7 @@ import sys
 import os
 import argparse
 import math
+import random
 import json
 import subprocess
 import ctypes
@@ -110,10 +111,8 @@ LLM_TYPE_GAP_BOOST = 5000       # 补缺加分（>常规升级/铺塔的几百�
 LLM_TYPE_EFFECTIVE_LEVEL = 3    # 该路有一座达到此级(T3)的该型塔即视为"配置到位"，停止高优先补缺
 EARLY_PREP_LEAD = 3             # 提前布防前瞻波数：算到的波进入"已知死亡波前N波"内即弹提前布防指令
 
-# 技能/英雄释放的"路段位置优先级"：路程进度 0=入口 1=终点。
-# 火雨/增援/英雄一律不放在前半段，优先靠后(快进家)>路口>后半段，避免砸/挡在没用的前段。
-POWER_MIN_PROGRESS = 0.5        # 前半段(<0.5)一律不放技能/不派英雄驻守拦截
-POWER_NEAR_HOME_PROGRESS = 0.75  # 进度>此值=快进家，最高优先（应急拦截）
+# path_progress 只保留为诊断字段，不再参与英雄/增援/火雨落点决策。
+# 多关卡分段、子路径和汇聚点让“前后半段”推算长期不稳定；真实敌人坐标才是可靠战场锚点。
 
 # 技能中文名（解说事件用）
 CN_POWER = {
@@ -347,6 +346,7 @@ class KingdomRushAI:
         self._path_totals = {}  # 每条路径的总节点数 {path_index: total}
         self._path_entry_xy = {}  # 每条路出生点坐标 {path_index: (x,y)}
         self._level_exit = None   # 关卡终点坐标 (x,y)，bridge v5.13 下发
+        self._last_interaction_clicks = 0  # Bridge 自动处理关卡点击机制的累计次数
         self._result = None  # 对战结果: "win"/"lose"/"timeout"/"abort"
         self._record_persisted = False  # 本局结果是否已写入历史（防重复）
         self._event_callback = event_callback  # Lumi 事件推送回调
@@ -646,7 +646,8 @@ class KingdomRushAI:
         self._opening_plan_label = chosen.get("label", "")
 
         self._push_event(
-            f"我决定这局走{self._opening_plan_label}路线！{reasoning}",
+            f"开局策略已选为{self._opening_plan_label}。正在按实际金币和塔位执行，"
+            "具体建成的塔以场上状态为准。",
             "strategy_chosen")
         self._print(f"  [LLM策略] 决策完成 ({elapsed:.1f}s)")
 
@@ -711,7 +712,6 @@ class KingdomRushAI:
 
     def do_use_power(self, power, x, y, reason=""):
         name = "火雨" if power == 1 else "增援"
-        self._push_event(f"释放{name} ({reason})", "power_used")
         if self.dry_run:
             msg = f"{name}→游戏坐标({x:.0f},{y:.0f})"
             self._print(f"  [试运行] {msg}  ({reason})")
@@ -719,6 +719,9 @@ class KingdomRushAI:
             return None
         result = self.bot.use_power(power, x, y)
         if result and result.get("type") == "ok":
+            # 只有 Bridge 明确确认成功后才给主播事件，避免 CD/锁定失败时
+            # 角色仍承诺“已经放了火雨/增援”。
+            self._push_event(f"已释放{name} ({reason})", "power_used")
             msg = f"{name}→({x:.0f},{y:.0f})"
             self._print(f"  [{name}] {msg}  ({reason})")
             self._log_action(name, f"{msg} | {reason}")
@@ -1886,59 +1889,25 @@ class KingdomRushAI:
         if now - self._last_hero_move_time < cooldown:
             return
 
-        towers = state.get("towers", [])
-
-        # 收集路口驻守位置（塔位附近的路径点）
-        path_positions = []
-        for t in towers:
-            npx = t.get("nearest_path_x")
-            npy = t.get("nearest_path_y")
-            ps = t.get("path_score", 0)
-            if npx and npy and ps > 0:
-                path_positions.append((npx, npy, ps))
-
         should_move = False
         tx, ty = hx, hy
         reason = ""
 
-        # 优先级2: 找有敌人聚集的路口 → 去最近的路口驻守
+        # 优先级2: 敌群 → 直接去真实敌群中心。敌人坐标天然锚定战场，
+        # 不再使用桥接推算的路口坐标，避免英雄走到路外失效。
         cluster = self.find_enemy_cluster(enemies, radius=150)
         if cluster:
             cx, cy, cluster_count = cluster
             cluster_dist = dist(hx, hy, cx, cy)
-            # 聚集必须在后半段才去驻守——前段聚集不去(白挡、把怪拖慢帮倒忙、旁边没塔还易死)
-            cluster_prog = max((self._enemy_progress(e) for e in enemies
-                                if dist(cx, cy, e.get("x", 0), e.get("y", 0)) <= 150),
-                               default=0)
-            if cluster_count >= 3 and cluster_dist > 250 and cluster_prog >= POWER_MIN_PROGRESS:
-                # 选驻守点：优先"有 DPS 塔火力支援"的，其次离聚集最近
-                best_intercept = None
-                best_key = (-1, 1.0)  # (有支援:1/0, -距聚集)
-                best_ps = 0
-                for px, py, ps in path_positions:
-                    d_to_cluster = dist(cx, cy, px, py)
-                    if d_to_cluster < 200:
-                        enemies_near = self.count_nearby_enemies(enemies, px, py, 250)
-                        if enemies_near >= 2:
-                            support = 1 if self._has_dps_support({"x": px, "y": py}, towers) else 0
-                            key = (support, -d_to_cluster)
-                            if key > best_key:
-                                best_key = key
-                                best_intercept = (px, py)
-                                best_ps = ps
-                if best_intercept:
-                    tx, ty = best_intercept
-                    reason = (f"路口驻守(进度{cluster_prog:.0%},覆盖={best_ps},"
-                              f"聚集{cluster_count},支援={'有' if best_key[0] else '无'})")
-                    should_move = True
+            if cluster_count >= 3 and cluster_dist > 250:
+                tx, ty = cx, cy
+                reason = f"赶往敌群(聚集{cluster_count}) 敌群坐标({cx:.0f},{cy:.0f})"
+                should_move = True
 
-        # 优先级3: 高威胁敌人 → 直接去它所在位置拦它（仅当它已在后半段，前段不追）。
-        # 不再用"前方路径点拦截"：那套拿塔的全局节点序号 vs 敌人的段内序号比大小，单位不一致，
-        # 会算出乱七八糟的前段点，把英雄拽到全图乱跑。后半段高威胁怪本就离家近，去它位置即可。
+        # 优先级3: 高威胁敌人 → 直接去它的真实坐标，不设路段门槛。
         if not should_move:
             dangerous = self.find_most_dangerous_enemy(enemies)
-            if (dangerous and self._is_high_threat(dangerous)
-                    and self._enemy_progress(dangerous) >= POWER_MIN_PROGRESS):
+            if dangerous and self._is_high_threat(dangerous):
                 dx, dy = dangerous.get("x", 0), dangerous.get("y", 0)
                 if dist(hx, hy, dx, dy) > 250:
                     dprog = self._enemy_progress(dangerous)
@@ -1971,8 +1940,7 @@ class KingdomRushAI:
         best_fire = self._find_best_fire_target(combat_enemies)
         if best_fire:
             fx, fy, eff_dmg, direct_count, trail_count, diag, prog = best_fire
-            seg = "快进家" if prog >= POWER_NEAR_HOME_PROGRESS else "后半段"
-            self._print(f"    [火雨诊断] 目标({fx:.0f},{fy:.0f}) 进度{prog:.0%}({seg}) "
+            self._print(f"    [火雨诊断] 目标({fx:.0f},{fy:.0f}) 路径诊断进度{prog:.0%} "
                         f"有效伤害={eff_dmg:.0f} 直击{direct_count} 火坑{trail_count}: "
                         f"{' | '.join(diag)}")
             self.do_use_power(1, fx, fy,
@@ -1996,20 +1964,17 @@ class KingdomRushAI:
     FIRE_MIN_EFFECTIVE = 100   # 最低有效伤害门槛（避免浪费在残血小怪上）
 
     def _find_best_fire_target(self, enemies):
-        """找火雨释放点：留 CD 给靠后的怪，前半段一律不砸。
-        位置优先级：快进家(>0.75) > 后半段(>0.5)；前半段(<0.5)直接跳过(留着 CD)。
-        同一档内再比有效伤害(直击 min(hp,400) + 走入火坑 min(hp,75))，要 ≥ 门槛才算合格。
+        """找火雨释放点：对所有已进入战场的敌人计算有效伤害。
+        不再使用不稳定的“前后半段”门槛；按直击 min(hp,400) +
+        走入火坑 min(hp,75) 的总收益选择，要 ≥ 门槛才释放。
         返回 (x, y, effective_damage, direct_count, trail_count, diag) 或 None(没合格目标→不放，留CD)。
         """
         best = None
-        best_key = (-1, -1.0)  # (位置档:2=快进家/1=后半段, 有效伤害)
+        best_key = -1.0
         best_diag = []
 
         for center in enemies:
-            # 前半段不砸——把火雨留给快进家/后段的目标，避免一扎堆就空放
             c_prog = self._enemy_progress(center)
-            if c_prog < POWER_MIN_PROGRESS:
-                continue
             cx, cy = center.get("x", 0), center.get("y", 0)
             c_pi = center.get("path_index")
             c_ni = center.get("path_ni", 0)
@@ -2044,8 +2009,7 @@ class KingdomRushAI:
 
             if eff_dmg < self.FIRE_MIN_EFFECTIVE:
                 continue
-            bucket = 2 if c_prog >= POWER_NEAR_HOME_PROGRESS else 1
-            key = (bucket, eff_dmg)
+            key = eff_dmg
             if key > best_key:
                 best_key = key
                 best = (cx, cy, eff_dmg, direct_count, trail_count, c_prog)
@@ -2080,14 +2044,9 @@ class KingdomRushAI:
         return False
 
     def _find_reinforce_junction(self, enemies, towers):
-        """找离最前方敌人最近的路口，在路径上放援军。
-        路口 = 有塔且 nearby_paths ≥ 2 的位置。
-        放在路口塔附近的路径点上（而非塔本身坐标），确保援军在路径上阻挡敌人。
-        增援不留 CD、有就放（持续保持兵在场上挡线，与火雨攒爆发不同），但落点讲究：
-        - 后半段有威胁 → 去离最前方(最危险)怪最近的、有 DPS 火力的路口挡它；
-        - 后半段没威胁(刚开局/怪都在前段) → 不浪费 CD，放"常备挡线"：后半段+有DPS火力的
-          路口里覆盖最高的(没终点坐标信息时退回有火力的高覆盖路口)。绝不挡在前半段。
-        返回 (x, y, reason) 或 None(连个像样的路口都没有)。
+        """选择增援落点。
+        增援不留 CD、有敌人就及时投入：召唤者优先，其次最大敌群，再次最危险敌人。
+        所有落点都取真实敌人坐标，不再依赖不稳定的路口/前后半段推算。
         """
         # 最高优先：锁死灵法师等召唤者——放它身上触发近战、断召唤，且它已进 DPS 塔火力网
         # (用户:这种怪只要被锁住,任何非兵营塔都能打死)。锁最靠前(召唤最久/最危险)的那只。
@@ -2102,48 +2061,19 @@ class KingdomRushAI:
                     f"锁召唤者{cn_enemy(tgt.get('template',''))}(断召唤+塔火力秒) "
                     f"进度{self._enemy_progress(tgt):.0%}")
 
-        junctions = [t for t in towers if len(t.get("nearby_paths", [])) >= 2]
-        covered = [t for t in junctions if self._has_dps_support(t, towers)]
-        forward = self.find_most_forward_enemy(enemies)
-        fprog = self._enemy_progress(forward) if forward else 0.0
+        cluster = self.find_enemy_cluster(enemies, radius=120)
+        if cluster and cluster[2] >= 2:
+            cx, cy, count = cluster
+            self._print(f"    [增援诊断] 敌群落点=({cx:.0f},{cy:.0f}) 聚集={count}")
+            return (cx, cy, f"投入敌群 聚集{count}")
 
-        if forward is not None and fprog >= POWER_MIN_PROGRESS:
-            # 有后半段威胁 → 去离它最近的(有DPS火力的)路口挡它
-            fx, fy = forward.get("x", 0), forward.get("y", 0)
-            if not junctions:
-                return (fx, fy,
-                        f"无路口 拦截{cn_enemy(forward.get('template', '?'))} 前敌进度{fprog:.0%}")
-            pool = covered or junctions
-            best_tower = min(pool, key=lambda t: dist(fx, fy, t.get("x", 0), t.get("y", 0)))
-            anchor = (fx, fy)
-            tag = f"拦截 前敌进度{fprog:.0%}"
-        else:
-            # 后半段没威胁(刚开局/怪都在前段) → 不浪费 CD，放常备挡线：
-            # 选"后半段 + 有DPS火力"的路口里覆盖最高的(没终点信息就退回有火力的高覆盖路口)。
-            if not covered and not junctions:
-                return None
-            backhalf = [t for t in covered
-                        if (self._junction_progress(t) or 1.0) >= POWER_MIN_PROGRESS]
-            pool = backhalf or covered or junctions
-            best_tower = max(pool, key=lambda t: t.get("path_score") or 0)
-            anchor = (best_tower.get("x", 0), best_tower.get("y", 0))
-            jp = self._junction_progress(best_tower)
-            tag = f"常备挡线 路口进度{('%d%%' % (jp * 100)) if jp is not None else '?'}"
-
-        tx, ty = best_tower.get("x", 0), best_tower.get("y", 0)
-        paths_str = ",".join(str(p) for p in best_tower.get("nearby_paths", []))
-        # 在路口塔附近找路径点，选最接近锚点(前敌/路口)的点
-        rx, ry = tx, ty
-        result = self.bot.get_path_points(tx, ty, 180)
-        if result and result.get("type") == "ok":
-            path_pts = result.get("points", [])
-            if path_pts:
-                best_pt = min(path_pts, key=lambda p: dist(anchor[0], anchor[1], p["x"], p["y"]))
-                rx, ry = best_pt["x"], best_pt["y"]
-        support = "有" if best_tower in covered else "无"
-        self._print(f"    [增援诊断] {tag} 落点=({rx:.0f},{ry:.0f}) "
-                    f"路径=[{paths_str}] DPS支援={support}")
-        return (rx, ry, f"{tag} 路径=[{paths_str}] 支援={support}")
+        target = self.find_most_dangerous_enemy(enemies) or self.find_most_forward_enemy(enemies)
+        if not target:
+            return None
+        tx, ty = target.get("x", 0), target.get("y", 0)
+        self._print(f"    [增援诊断] 敌人落点=({tx:.0f},{ty:.0f}) "
+                    f"目标={cn_enemy(target.get('template', '?'))}")
+        return (tx, ty, f"投入战场 拦截{cn_enemy(target.get('template', '?'))}")
 
     def _is_barrack(self, template):
         return "barrack" in template or "paladin" in template or "barbarian" in template
@@ -2453,7 +2383,7 @@ class KingdomRushAI:
                                 self._path_totals[pi] = entry["total"]
                             if entry.get("x") is not None and entry.get("y") is not None:
                                 self._path_entry_xy[pi] = (entry["x"], entry["y"])
-                # 关卡终点(掉血点汇聚点，bridge v5.13)——用于判断任意位置/路口在不在后半段
+                # 关卡终点仅保留给诊断；英雄/技能不再据此判断“前后半段”
                 ex = state.get("exit")
                 if isinstance(ex, dict) and ex.get("x") is not None:
                     self._level_exit = (ex["x"], ex["y"])
@@ -2466,6 +2396,14 @@ class KingdomRushAI:
                 if finished and len(enemies) == 0:
                     status_parts.append("胜利!")
                 self._print(f"\n[Tick {self.tick_count}] {' | '.join(status_parts)}")
+
+                interaction_clicks = int(state.get("interaction_clicks_total") or 0)
+                if interaction_clicks > self._last_interaction_clicks:
+                    delta = interaction_clicks - self._last_interaction_clicks
+                    target = state.get("interaction_last_target") or "未知交互目标"
+                    self._print(f"  [关卡交互] 自动快速点击 ×{delta} 目标={target}")
+                    self._log_action("关卡交互", f"快速点击×{delta} | 目标={target}")
+                    self._last_interaction_clicks = interaction_clicks
 
                 # 下一波预览（每波只打印一次）
                 wave_analysis = self.analyze_next_wave(state)
@@ -2659,8 +2597,10 @@ def detect_screen(bot):
 
 
 def pick_next_level(bot):
-    """选择下一个要打的关卡：未三星 > 未通关，返回 (level_idx, mode, current_stars) 或 None
-    设环境变量 KR_FORCE_LEVEL=N 可强制反复重打第 N 关（A/B 对照测试用，已通关也重打）。"""
+    """选关：默认在"已通关(≥1星)的非教学关"里**随机**选一关玩，返回 (level_idx, mode, current_stars)。
+    用户妥协策略(2026-06-26)：手动通关全图 + 升满兵种点数后，直播每局随机选一关，稳定不卡关。
+    KR_FORCE_LEVEL=N 强制某关(调试/对照)；设 KR_LEVEL_GRIND=1 恢复旧的"刷星>推图"顺序打法；
+    还没有已通关的关时自动退回推图(打第一个未通关)。"""
     result = bot.send_and_receive({"action": "get_level_list"})
     if not result or result.get("type") != "level_list":
         return None
@@ -2668,31 +2608,41 @@ def pick_next_level(bot):
     if not levels:
         return None
 
-    # 强制指定关卡（A/B 对照：纯算法 vs LLM 打同一关）
+    # 强制指定关卡（A/B 对照 / 调试）
     force = os.environ.get("KR_FORCE_LEVEL")
     if force:
         try:
             fidx = int(force)
             stars = next((lv.get("stars", 0) for lv in levels if lv.get("idx") == fidx), 0)
-            print(f"  [强制关卡] KR_FORCE_LEVEL={fidx}（当前{stars}星，对照测试反复重打）")
+            print(f"  [强制关卡] KR_FORCE_LEVEL={fidx}（当前{stars}星）")
             return (fidx, 1, stars)
         except ValueError:
             pass
 
-    # 优先找未三星但已通关的关卡（刷星）
-    for lv in levels:
-        stars = lv.get("stars", 0)
-        if 0 < stars < 3:
-            return (lv["idx"], 1, stars)  # 普通模式，附带当前星数
+    # 第1关是教学关，只从默认直播随机池排除；KR_FORCE_LEVEL=1 仍可用于诊断。
+    passed = [lv for lv in levels if lv.get("idx") != 1 and lv.get("stars", 0) >= 1]
 
-    # 其次找未通关的第一关（推图）
+    # 旧打法：刷星(未三星已通关) > 推图(未通关)。设 KR_LEVEL_GRIND=1 才走
+    if os.environ.get("KR_LEVEL_GRIND"):
+        for lv in levels:
+            if 0 < lv.get("stars", 0) < 3:
+                return (lv["idx"], 1, lv["stars"])
+        for lv in levels:
+            if lv.get("stars", 0) <= 0:
+                return (lv["idx"], 1, 0)
+        print("  所有关卡已三星通关！")
+        return None
+
+    # 默认：已通关的非教学关里随机选一关（不卡关，也不重复教学）
+    if passed:
+        lv = random.choice(passed)
+        print(f"  [随机选关] 第{lv['idx']}关（当前{lv.get('stars', 0)}星，{len(passed)}关可选）")
+        return (lv["idx"], 1, lv.get("stars", 0))
+
+    # 还没通关任何关 → 退回推图打第一个未通关
     for lv in levels:
-        stars = lv.get("stars", 0)
-        if stars <= 0:
+        if lv.get("stars", 0) <= 0:
             return (lv["idx"], 1, 0)
-
-    # 全部三星，检查钢铁/英雄模式（未来扩展）
-    print("  所有关卡已三星通关！")
     return None
 
 
@@ -2702,6 +2652,9 @@ def _setup_win32_hwnd_types(user32):
     HWND = ctypes.wintypes.HWND
     user32.FindWindowW.restype = HWND
     user32.FindWindowW.argtypes = [ctypes.wintypes.LPCWSTR, ctypes.wintypes.LPCWSTR]
+    user32.FindWindowExW.restype = HWND
+    user32.FindWindowExW.argtypes = [HWND, HWND, ctypes.wintypes.LPCWSTR,
+                                   ctypes.wintypes.LPCWSTR]
     user32.GetForegroundWindow.restype = HWND
     user32.GetForegroundWindow.argtypes = []
     user32.GetWindowThreadProcessId.restype = ctypes.wintypes.DWORD
@@ -2720,7 +2673,7 @@ def _setup_win32_hwnd_types(user32):
     user32.PostMessageW.restype = ctypes.wintypes.BOOL
 
 
-def _force_foreground(hwnd, attempts=6):
+def _force_foreground(hwnd, attempts=6, *, startup=None):
     """把窗口可靠地抢到最前台并验证。
 
     Windows 对跨进程置前有"前台锁"限制，单纯 SetForegroundWindow 会静默失败。
@@ -2731,10 +2684,13 @@ def _force_foreground(hwnd, attempts=6):
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
     SW_RESTORE = 9
-    user32.ShowWindow(hwnd, SW_RESTORE)
+    if startup is not None:
+        startup.run(user32.ShowWindow, hwnd, SW_RESTORE)
+    else:
+        user32.ShowWindow(hwnd, SW_RESTORE)
     cur_tid = kernel32.GetCurrentThreadId()
 
-    for _ in range(attempts):
+    def try_foreground():
         if user32.GetForegroundWindow() == hwnd:
             return True
         fg = user32.GetForegroundWindow()
@@ -2742,11 +2698,23 @@ def _force_foreground(hwnd, attempts=6):
         attached = bool(fg_tid) and fg_tid != cur_tid
         if attached:
             user32.AttachThreadInput(cur_tid, fg_tid, True)
-        user32.BringWindowToTop(hwnd)
-        user32.SetForegroundWindow(hwnd)
-        if attached:
-            user32.AttachThreadInput(cur_tid, fg_tid, False)
-        time.sleep(0.2)
+        try:
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+        finally:
+            if attached:
+                user32.AttachThreadInput(cur_tid, fg_tid, False)
+        return False
+
+    for _ in range(attempts):
+        ready = (startup.run(try_foreground) if startup is not None
+                 else try_foreground())
+        if ready:
+            return True
+        if startup is not None:
+            startup.wait(0.2)
+        else:
+            time.sleep(0.2)
 
     return user32.GetForegroundWindow() == hwnd
 
@@ -2785,60 +2753,109 @@ def _post_enter(hwnd):
     user32.PostMessageW(hwnd, WM_KEYUP, VK_RETURN, lp_up)
 
 
-def _trigger_launcher_start(hwnd):
+def _trigger_launcher_start(hwnd, *, startup=None):
     """触发启动器的"开始"。
 
     主路径：PostMessage 回车（焦点无关，直播后台也能用）。
     冗余路径：若能成功置前，再发一次全局回车（多按一次回车无害）。
     """
-    _post_enter(hwnd)
-    if _force_foreground(hwnd):
-        _press_enter()
+    if startup is None:
+        _post_enter(hwnd)
+        if _force_foreground(hwnd):
+            _press_enter()
+    else:
+        # Each key pair is one short operation (50 ms): cancellation cannot
+        # leave a global key held down or allow input after stop() returns.
+        startup.run(_post_enter, hwnd)
+        if _force_foreground(hwnd, startup=startup):
+            startup.run(_press_enter)
+        startup.check()
 
 
-def trigger_launcher_start():
+def _find_launcher_window(user32, process_id=None):
+    """Recognize both launcher languages, scoped to the spawned process."""
+    for title in (LAUNCHER_TITLE, "Kingdom Rush"):
+        if process_id is None:
+            hwnd = user32.FindWindowW(None, title)
+            if hwnd:
+                return hwnd
+            continue
+        hwnd = 0
+        while True:
+            hwnd = user32.FindWindowExW(None, hwnd, None, title)
+            if not hwnd:
+                break
+            owner = ctypes.wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+            if owner.value == process_id:
+                return hwnd
+    return 0
+
+
+def trigger_launcher_start(startup=None):
     """重新定位启动器窗口并触发"开始"，供启动失败后的重试调用。
     返回是否找到了启动器窗口。"""
+    if startup is not None:
+        startup.check()
     user32 = ctypes.windll.user32
     _setup_win32_hwnd_types(user32)
-    hwnd = user32.FindWindowW(None, LAUNCHER_TITLE)
+    process_id = startup.process_id if startup is not None else None
+    if startup is not None and process_id is None:
+        return False
+    hwnd = _find_launcher_window(user32, process_id)
+    if startup is not None:
+        startup.check()
     if not hwnd:
         return False
-    _trigger_launcher_start(hwnd)
+    _trigger_launcher_start(hwnd, startup=startup)
     return True
 
 
-def launch_game():
-    """启动游戏：运行 exe → 等待启动器窗口 → 置前 → 按回车进入。
+def launch_game(startup=None):
+    """启动游戏：运行 exe → 等待启动器窗口 → 投递回车进入。
 
-    LÖVE 启动器的"开始"是默认按钮，窗口获得焦点后按回车即可触发，
-    比按像素坐标点击稳得多（不受分辨率/DPI缩放/窗口被遮挡影响）。
-    像素点击仅作为置前失败时的兜底。
+    PostMessage 不依赖前台焦点；所有加载等待共用调用方的启动预算，
+    取消后不再拉起进程或触发按键。未传 startup 的独立调用保留原行为。
     """
+    if startup is not None:
+        startup.check()
     user32 = ctypes.windll.user32
     _setup_win32_hwnd_types(user32)  # 修正 HWND 类型，避免 64 位句柄截断
 
     print(f"  [启动] 运行游戏: {GAME_EXE}")
-    subprocess.Popen([GAME_EXE], cwd=os.path.dirname(GAME_EXE))
+    process_id = None
+    if startup is not None:
+        process = startup.spawn([GAME_EXE], cwd=os.path.dirname(GAME_EXE))
+        process_id = process.pid
+    else:
+        subprocess.Popen([GAME_EXE], cwd=os.path.dirname(GAME_EXE))
 
     # 等待启动器窗口出现
     hwnd = 0
     for i in range(30):
-        hwnd = user32.FindWindowW(None, LAUNCHER_TITLE)
+        if startup is not None:
+            startup.check()
+        hwnd = _find_launcher_window(user32, process_id)
         if hwnd:
             break
-        time.sleep(1)
+        if startup is not None:
+            startup.wait(1)
+        else:
+            time.sleep(1)
     if not hwnd:
         print("  [启动] 找不到启动器窗口，超时。")
         return False
 
     print("  [启动] 找到启动器窗口，等待渲染完成...")
-    time.sleep(2)  # 等启动器入场动画 + 按钮画出来
+    if startup is not None:
+        startup.wait(2)
+    else:
+        time.sleep(2)  # 等启动器入场动画 + 按钮画出来
 
     # 触发"开始"：焦点无关的 PostMessage 回车为主（直播后台进程也能用），
     # 能置前时再补一发全局回车冗余。是否真的进入游戏由调用方按"bridge 是否
-    # 连上"判定并重试（见 kingdom_rush_bridge.py 的启动重试），这里只负责触发。
-    _trigger_launcher_start(hwnd)
+    # 连上"判定并重试（见 games/kingdom_rush/bridge.py 的启动重试），这里只负责触发。
+    _trigger_launcher_start(hwnd, startup=startup)
     print("  [启动] 已触发开始（PostMessage 回车），等待游戏加载...")
     return True
 

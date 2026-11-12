@@ -13,6 +13,7 @@ import json
 import time
 import sys
 import argparse
+import threading
 from datetime import datetime
 
 HOST = "127.0.0.1"
@@ -29,14 +30,67 @@ class KingdomRushBot:
         self.message_count = 0
         self.host = HOST
         self.port = PORT
+        self._socket_lock = threading.RLock()
+        self._connect_generation = 0
 
-    def connect(self, retries=30, interval=2, quiet=False):
-        for i in range(retries):
+    @staticmethod
+    def _close_socket(sock):
+        if sock is None:
+            return
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        finally:
             try:
-                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.sock.connect((self.host, self.port))
-                self.sock.settimeout(0.1)
-                self.connected = True
+                sock.close()
+            except OSError:
+                pass
+
+    def connect(self, retries=30, interval=2, quiet=False, *, startup=None,
+                connect_timeout=1.0):
+        if startup is not None:
+            startup.check()
+        with self._socket_lock:
+            if not self.running:
+                return False
+            self._connect_generation += 1
+            generation = self._connect_generation
+            previous, self.sock = self.sock, None
+            self.connected = False
+        self._close_socket(previous)
+
+        for i in range(retries):
+            sock = None
+            accepted = False
+            try:
+                timeout = (startup.remaining(connect_timeout) if startup is not None
+                           else connect_timeout)
+                with self._socket_lock:
+                    if not self.running or generation != self._connect_generation:
+                        return False
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    # close() can now interrupt this pending connection as well.
+                    self.sock = sock
+                sock.settimeout(timeout)
+                if startup is not None:
+                    startup.check()
+                sock.connect((self.host, self.port))
+
+                def accept_connection():
+                    with self._socket_lock:
+                        if (not self.running or generation != self._connect_generation
+                                or self.sock is not sock):
+                            return False
+                        sock.settimeout(0.1)
+                        self.recv_buffer = ""
+                        self.connected = True
+                        return True
+
+                accepted = (startup.run(accept_connection) if startup is not None
+                            else accept_connection())
+                if not accepted:
+                    return False
                 print(f"[连接成功] {self.host}:{self.port}")
                 return True
             except ConnectionRefusedError:
@@ -44,11 +98,27 @@ class KingdomRushBot:
                     if i == 0:
                         print(f"等待游戏启动... (端口 {self.port})")
                     print(f"  重试 {i+1}/{retries}...", end='\r')
-                time.sleep(interval)
-            except Exception as e:
+            except OSError as e:
                 if not quiet:
                     print(f"连接错误: {e}")
-                time.sleep(interval)
+            finally:
+                if sock is not None and not accepted:
+                    with self._socket_lock:
+                        # A newer connect() may already own a different socket.
+                        if self.sock is sock:
+                            self.sock = None
+                            self.connected = False
+                    self._close_socket(sock)
+            if startup is not None:
+                startup.check()
+            with self._socket_lock:
+                if not self.running or generation != self._connect_generation:
+                    return False
+            if i + 1 < retries:
+                if startup is not None:
+                    startup.wait(interval)
+                else:
+                    time.sleep(interval)
         if not quiet:
             print("\n连接超时，请确认游戏已启动且 BridgeMod 已注入")
         return False
@@ -581,12 +651,12 @@ class KingdomRushBot:
                 break
 
     def close(self):
-        self.running = False
-        if self.sock:
-            try:
-                self.sock.close()
-            except:
-                pass
+        with self._socket_lock:
+            self.running = False
+            self.connected = False
+            self._connect_generation += 1
+            sock, self.sock = self.sock, None
+        self._close_socket(sock)
         print("\n[断开连接]")
 
 

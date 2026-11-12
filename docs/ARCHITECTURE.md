@@ -14,8 +14,9 @@ complete picture of how the parts connect.
 
 ## The core idea
 
-Each character runs its own real-time speech-to-speech session. The characters
-stay aware of each other through **history mirroring**, take turns through a
+The published modules support a realtime speech-to-speech path and a text-model
+path with separate TTS. This is a curated snapshot, not a description of every
+current production default. The characters stay aware of each other through **history mirroring**, take turns through a
 **scheduler**, and are kept from talking over each other by a **speech-output
 arbiter**. Everything is coordinated over an **event bus** anchored to a global
 **state machine**.
@@ -48,11 +49,22 @@ arbiter**. Everything is coordinated over an **event bus** anchored to a global
 | Brain | `fast_brain.py` | Per-character lightweight LLM for tool-driven decisions (e.g. game moves). |
 | Voice out | `lumi_tts.py`, `cosyvoice_tts.py`, `tts_emitter.py`, `run_architecture.py`, `voice_registry.py` | Streaming TTS with user-supplied voice ids; `run_architecture.py` selects the text-vs-realtime path, while the public voice registry reads local environment variables and never contains production voice ids. |
 | Voice in | `lumi_asr.py` | Streaming speech recognition. |
+| Independent Qwen output | `qwen3_tts.py`, `qwen_audio_tts.py`, `role_volume.py`, `speech_pauses.py`, `spoken_output.py` | Complete-sentence PCM, ordered playback, cancellation and outcome reporting; explicit service and device setup. These modules are not automatically wired into the older public launcher. See [voice setup](VOICE_MODULES.md). |
 | Memory | `memory/` | Per-viewer and self memory in SQLite, distilled by an LLM extractor/summarizer. `decay.py` hides stale unpinned facts at read time without deleting them; `guard_facts.py` deterministically protects membership identity facts. The database itself is never published. |
 | Games | `games/` | Game segments grouped by integration: Buckshot Roulette; Terraria (bundled focus-safe tModLoader bridge, A* pathfinding and five-layer goal planner; see `games/terraria/mod/README.md` and `docs/games/terraria-behavior-tree.md`); Kingdom Rush (LuaJIT bridge and per-wave LLM strategist; see `docs/games/kingdom-rush-reverse-engineering.md`); and the Wordle/Handle frontends with a shared isolated entropy-solver worker. Commercial game binaries are not included. |
 | Per-character config | `voice_config.py` | Voice, avatar model, subtitle, audio routing (placeholder example characters). |
 
 ## Configuration and credentials
+
+Request/response subscribers now execute on a daemon worker so slow callbacks do
+not hold up the response wait. A timeout rejects late responses; it cannot kill a
+callback or undo its side effects. Consumers can check `event.is_active` before
+acting. Ordinary `publish()` remains synchronous.
+
+Kingdom Rush startup shares one cancellation/deadline context and verifies the
+bridge handshake. Stop targets only the process owned by that startup. Buckshot
+includes independent duel decision/protocol helpers, but a compatible game-side
+duel bridge is not bundled. See [game notes](../games/README.md).
 
 `voice_config.py` holds per-character runtime config; the example characters ship
 with placeholder values. `voice_registry.py` resolves optional cloned voices from

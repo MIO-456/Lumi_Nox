@@ -18,6 +18,8 @@ config.py
 logs/
 recordings/
 *.db
+role_volumes.json
+sample.wav
 
 # OS / editor
 .DS_Store

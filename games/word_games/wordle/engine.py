@@ -13,9 +13,14 @@ Wordle 算法引擎 — 信息熵求解器 + 约束追踪
 import json
 import math
 import os
+import random
 import urllib.request
 from pathlib import Path
 from typing import Optional
+
+EVAL_SAMPLE_LIMIT = 500     # 大候选集只评估部分合法候选
+ENTROPY_SAMPLE_LIMIT = 400  # 每个猜测最多使用这么多候选估算信息熵
+# 双重采样限制计算量；结果是近似排名，不保证与全量计算或上一次运行相同。
 
 # 词库文件路径
 WORDS_FILE = Path(__file__).parent / "words.json"
@@ -118,10 +123,19 @@ def get_best_guesses(
         # 候选很少，直接返回，不需要熵计算
         return [(w, 0.0) for w in candidates[:n]]
 
-    # 始终从 candidates 中选（保证给 LLM 的词不会与已知约束矛盾）
+    # 评估池：只对这些词算熵、选最优（始终是 candidates 的子集，保证不与已知约束矛盾）
+    eval_pool = candidates
+    if len(candidates) > EVAL_SAMPLE_LIMIT:
+        eval_pool = random.sample(candidates, EVAL_SAMPLE_LIMIT)
+
+    # 估熵池：算每个词的熵时用的候选样本（关键提速点——不再遍历全部候选）
+    entropy_pool = candidates
+    if len(candidates) > ENTROPY_SAMPLE_LIMIT:
+        entropy_pool = random.sample(candidates, ENTROPY_SAMPLE_LIMIT)
+
     scored = []
-    for word in candidates:
-        e = compute_entropy(word, candidates)
+    for word in eval_pool:
+        e = compute_entropy(word, entropy_pool)
         scored.append((word, e))
 
     scored.sort(key=lambda x: -x[1])

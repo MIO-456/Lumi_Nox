@@ -14,7 +14,7 @@ import requests
 KR_API_KEY = os.environ.get("KR_ARK_API_KEY")
 if not KR_API_KEY:
     raise RuntimeError("缺少 KR_ARK_API_KEY，请先在 .env 中配置")
-KR_MODEL = "doubao-seed-2-0-lite-260215"
+KR_MODEL = "doubao-seed-2-0-lite-260428"
 KR_API_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 KR_TIMEOUT = 15  # 秒
 

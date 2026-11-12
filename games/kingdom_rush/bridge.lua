@@ -5,7 +5,7 @@
 local socket = require("socket")
 
 local M = {}
-local BRIDGE_VERSION = "v5.13"  -- get_state 增发 exit 终点坐标(核对进度) + 增援不再留CD(Python侧)
+local BRIDGE_VERSION = "v5.14"  -- 自动快速点击关卡交互实体（解冻塔/Boss点击等）
 local server = nil
 local clients = {}
 local push_interval = 0  -- 默认不自动推送，客户端可通过 set_push_interval 开启
@@ -467,6 +467,32 @@ local function collect_heroes()
     return heroes
 end
 
+-- ========== 关卡内必须点击的机制 ==========
+-- 游戏原生脚本用 click_play.can_click + required_clicks + clicked 驱动
+-- 解冻塔、Boss 打断等“快速点击”机制。Bridge 每帧直接写点击脉冲，
+-- 不依赖 Windows 鼠标、窗口焦点或分辨率。
+local interaction_click_timer = 0
+local interaction_clicks_total = 0
+local interaction_last_target = nil
+
+local function auto_click_level_interactables(dt)
+    interaction_click_timer = interaction_click_timer + (dt or 0)
+    if interaction_click_timer < 0.08 then return end
+    interaction_click_timer = 0
+
+    local store = game and game.store
+    if not store or not store.entities or store.paused then return end
+    for _, e in pairs(store.entities) do
+        local cp = e.click_play
+        local required = cp and tonumber(cp.required_clicks)
+        if cp and cp.can_click and required and required > 0 then
+            cp.clicked = true
+            interaction_clicks_total = interaction_clicks_total + 1
+            interaction_last_target = e.template_name or "unknown_click_target"
+        end
+    end
+end
+
 -- 敌人模板属性缓存（避免每 tick 重复查询 entity_db）
 local enemy_stats_cache = {}
 
@@ -731,6 +757,8 @@ local function collect_game_state()
     state.holders = collect_holders()
     state.enemies = collect_enemies()
     state.heroes = collect_heroes()
+    state.interaction_clicks_total = interaction_clicks_total
+    state.interaction_last_target = interaction_last_target
 
     -- 数量统计
     state.tower_count = #state.towers
@@ -1720,6 +1748,7 @@ function M.update(dt)
     if not initialized then return end
 
     -- (原 track_soldiers 已移除，使用游戏原生 barrack.soldiers)
+    auto_click_level_interactables(dt)
 
     -- 接受新连接
     local client, err = server:accept()

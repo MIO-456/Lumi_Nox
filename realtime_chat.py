@@ -27,6 +27,7 @@ import websockets
 from websockets.exceptions import InvalidStatus
 
 import realtime_chat_protocol as proto
+import role_volume
 
 # ===== 终端颜色（自包含，避免反向依赖 lumi.py）=====
 C_RT = "\033[38;5;81m"     # 浅蓝 — realtime_chat
@@ -1787,6 +1788,7 @@ def _player_loop():
         if not data:
             continue
         try:
+            data = role_volume.scale_float32(data, _active_speaker)
             if _output_stream is not None:
                 _output_stream.write(data)
             if _monitor_stream is not None:
@@ -1850,6 +1852,7 @@ def _player_loop_for_runtime(rt: SessionRuntime):
         if data is None:
             break
         try:
+            data = role_volume.scale_float32(data, rt.speaker)
             if rt.output_stream is not None:
                 rt.output_stream.write(data)
             if rt.monitor_stream is not None:

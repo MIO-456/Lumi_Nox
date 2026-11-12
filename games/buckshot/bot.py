@@ -36,16 +36,19 @@ ITEM_NAMES_CN = {
     "burner phone": "一次性手机",
     "adrenaline": "肾上腺素",
     "inverter": "逆转器",
+    "jammer": "干扰器",
 }
 
 def items_to_cn(items: list) -> list:
     """将道具列表翻译为中文"""
     return [ITEM_NAMES_CN.get(i, i) for i in items]
 
-# Godot 路径配置
-GODOT_EXE = os.path.join(os.path.dirname(__file__),
+# Godot 路径配置：默认相对本文件（主目录）；worktree 测试可用
+# BUCKSHOT_GODOT_DIR 环境变量指到含 Godot 与 buckshot_decompiled 的目录
+_BUCKSHOT_BASE_DIR = os.environ.get("BUCKSHOT_GODOT_DIR") or os.path.dirname(__file__)
+GODOT_EXE = os.path.join(_BUCKSHOT_BASE_DIR,
     "Godot_v4.1.1-stable_win64.exe", "Godot_v4.1.1-stable_win64_console.exe")
-GODOT_PROJECT = os.path.join(os.path.dirname(__file__), "buckshot_decompiled")
+GODOT_PROJECT = os.path.join(_BUCKSHOT_BASE_DIR, "buckshot_decompiled")
 
 # ANSI 颜色
 C_RESET = "\033[0m"
@@ -74,6 +77,8 @@ class GameState:
     barrel_sawed_off: bool = False
     dealer_cuffed: bool = False
     player_cuffed: bool = False
+    player_jammed: bool = False
+    opponent_jammed: bool = False
     player_items: list = field(default_factory=list)
     dealer_items: list = field(default_factory=list)
     round: int = 0
@@ -252,6 +257,8 @@ def _build_tools(player_items: list, state=None) -> list:
         if state:
             if state.dealer_cuffed and "handcuffs" in unique_items:
                 unique_items.remove("handcuffs")  # 已铐，再铐无效
+            if getattr(state, "opponent_jammed", False) and "jammer" in unique_items:
+                unique_items.remove("jammer")  # 已干扰，再用没有有效目标
             if state.barrel_sawed_off and "handsaw" in unique_items:
                 unique_items.remove("handsaw")  # 已锯，再锯无效
         if not unique_items:
@@ -330,6 +337,7 @@ ITEM_DESC_CN = {
     "burner phone": "一次性手机（随机揭示弹匣中某发子弹类型）",
     "adrenaline": "肾上腺素（偷庄家一个道具并使用）",
     "inverter": "逆转器（将膛内子弹反转：实弹↔空弹）",
+    "jammer": "干扰器（让对手跳过下一次行动）",
 }
 
 
@@ -340,13 +348,15 @@ class HybridDecisionEngine:
         from openai import OpenAI
         from dotenv import load_dotenv
         load_dotenv()
+        # .env 里按角色拆分（ARK_API_KEY_FAST 等），单机 bot 回退用 FAST key
+        api_key = os.getenv("ARK_API_KEY") or os.getenv("ARK_API_KEY_FAST")
         self.llm_client = OpenAI(
-            api_key=os.getenv("ARK_API_KEY"),
+            api_key=api_key,
             base_url="https://ark.cn-beijing.volces.com/api/v3",
         )
-        self.llm_model = "doubao-seed-1-6-flash-250828"
+        self.llm_model = "doubao-seed-2-0-mini-260428"
         # 情报追踪（非透视，通过道具合法获取的信息）
-        self.known_shell = None          # 当前膛内弹壳类型（放大镜/逆转器得知）
+        self.known_shell = None          # 当前膛内弹壳类型（放大镜得知；逆转器只翻转既有知识）
         self.known_positions = {}        # {position: "live"/"blank"} 手机得知
         self.pending_item = None         # 等待 action_executed 回传结果的道具名
         self._last_llm_info = None       # 最近一次 LLM 调用信息（写入 jsonl）
@@ -364,9 +374,20 @@ class HybridDecisionEngine:
         elif item == "burner phone" and revealed and position is not None:
             self.known_positions[position] = revealed
             print(f"{C_CYAN}[情报] 手机 → 第{position+1}发是【{'实弹' if revealed == 'live' else '空弹'}】{C_RESET}")
-        elif item == "inverter" and revealed:
-            self.known_shell = revealed
-            print(f"{C_CYAN}[情报] 逆转器 → 反转后当前弹壳是【{'实弹' if revealed == 'live' else '空弹'}】{C_RESET}")
+        elif item == "inverter":
+            # 只翻转当前弹的既有知识。手机仍指向后续位置的情报保持原样；
+            # 它随前置子弹消耗移动到位置 0 后，才属于可被翻转的当前弹知识。
+            if self.known_shell in {"live", "blank"}:
+                self.known_shell = "blank" if self.known_shell == "live" else "live"
+            if self.known_positions.get(0) in {"live", "blank"}:
+                current = self.known_positions[0]
+                self.known_positions[0] = "blank" if current == "live" else "live"
+            known = self.known_shell or self.known_positions.get(0)
+            if known:
+                print(
+                    f"{C_CYAN}[情报] 逆转器 → 根据此前情报，反转后当前弹壳是"
+                    f"【{'实弹' if known == 'live' else '空弹'}】{C_RESET}"
+                )
 
     def on_state_update(self, state: "GameState"):
         """状态更新时检查是否需要重置情报"""
@@ -436,6 +457,7 @@ class HybridDecisionEngine:
             "hp_opp": state.health_opponent,
             "barrel_sawed": state.barrel_sawed_off,
             "dealer_cuffed": state.dealer_cuffed,
+            "opponent_jammed": getattr(state, "opponent_jammed", False),
         }
 
         # ===== 第一层：确定性策略 =====
@@ -462,6 +484,9 @@ class HybridDecisionEngine:
         # 兜底也用道具：低血量先抽烟回血
         if "cigarettes" in items and state.health_player < state.max_health and state.health_player <= 2:
             fallback = {"action": "use_item", "item": "cigarettes", "reason": f"兜底策略：血量危险({state.health_player}HP)，先抽烟回血"}
+        # 干扰器：只在对手尚未被干扰时使用，避免原生界面找不到有效目标。
+        elif "jammer" in items and not getattr(state, "opponent_jammed", False) and state.live_remaining > 0:
+            fallback = {"action": "use_item", "item": "jammer", "reason": "兜底策略：先干扰对手，跳过对方下一次行动"}
         # 兜底用手铐：实弹概率高时先铐庄家
         elif "handcuffs" in items and not state.dealer_cuffed and p_live >= 0.5:
             fallback = {"action": "use_item", "item": "handcuffs", "reason": f"兜底策略：先铐住庄家"}
@@ -484,6 +509,29 @@ class HybridDecisionEngine:
 
     def _deterministic_decide(self, state, items, effective_known) -> dict | None:
         """第一层：确定性策略"""
+        guaranteed_live = (
+            effective_known == "live"
+            or (state.live_remaining > 0 and state.blank_remaining == 0)
+            or (state.shells_remaining == 1 and state.live_remaining > 0)
+        )
+        immediate_win = (
+            guaranteed_live
+            and state.health_opponent > 0
+            and state.health_opponent <= max(1, state.shotgun_damage)
+        )
+        if (
+            "jammer" in items
+            and not getattr(state, "opponent_jammed", False)
+            and state.live_remaining > 0
+            and effective_known != "blank"
+            and not immediate_win
+        ):
+            return {
+                "action": "use_item",
+                "item": "jammer",
+                "reason": "先干扰对手，让对方跳过下一次行动",
+            }
+
         # 只剩1发：100%已知
         if state.shells_remaining == 1:
             remaining_live = state.live_remaining
@@ -556,6 +604,7 @@ class HybridDecisionEngine:
             f"当前子弹是实弹的概率: {prob}\n"
             f"枪管已锯短: {'是（本次伤害翻倍）' if state.barrel_sawed_off else '否'}\n"
             f"庄家被铐住: {'是（庄家下回合跳过）' if state.dealer_cuffed else '否'}\n"
+            f"对手已被干扰: {'是（下一次行动会跳过）' if getattr(state, 'opponent_jammed', False) else '否'}\n"
             f"你的道具: {items_cn if items_cn else '无'}\n"
             f"庄家的道具: {dealer_items_cn if dealer_items_cn else '无'}"
         )
@@ -609,6 +658,7 @@ class HybridDecisionEngine:
                 messages=messages,
                 tools=tools,
                 tool_choice="required",
+                extra_body={"thinking": {"type": "disabled"}},
             )
             elapsed = time.time() - t0
             msg = response.choices[0].message
@@ -678,11 +728,19 @@ class HybridDecisionEngine:
 # ==================== TCP 客户端 ====================
 
 class BuckshotBot:
-    def __init__(self, watch_only=False, auto_mode=True, hybrid=False):
+    def __init__(self, watch_only=False, auto_mode=True, hybrid=False, duel_mode=False):
         self.sock = None
         self.state = GameState()
         self.hybrid = hybrid
-        if hybrid:
+        self.duel_mode = duel_mode
+        if duel_mode:
+            # 热座双人对打：每槽位一个独立引擎，情报互不共享
+            from .duel_engine import make_engines
+            e1, e2 = make_engines()
+            self.duel_engines = {1: e1, 3: e2}
+            self.engine = e1
+            print(f"{C_CYAN}[Bot] 热座双人对打模式（每槽位独立混合引擎）...{C_RESET}")
+        elif hybrid:
             print(f"{C_CYAN}[Bot] 初始化混合决策引擎（代码策略 + LLM）...{C_RESET}")
             self.engine = HybridDecisionEngine()
         else:
@@ -744,7 +802,11 @@ class BuckshotBot:
             self.sock.settimeout(0.1)
             print(f"{C_GREEN}[Bot] 已连接到游戏 {HOST}:{PORT}{C_RESET}")
             # 连接后自动发送 auto_mode 命令
-            if self.auto_mode:
+            if self.duel_mode:
+                # hotseat duel: 触发本地双人对局（不发单机 auto_mode）
+                self.send_command({"action": "start_duel"})
+                print(f"{C_CYAN}[Bot] 已请求热座双人对局（start_duel）{C_RESET}")
+            elif self.auto_mode:
                 self.send_command({"action": "set_auto_mode", "enabled": True})
                 print(f"{C_CYAN}[Bot] 已启用游戏内自动化模式{C_RESET}")
             return True
@@ -816,6 +878,35 @@ class BuckshotBot:
         self.state.batch = data.get("batch", 0)
         self.state.endless = data.get("endless", False)
 
+    def _handle_duel_state(self, msg: dict):
+        """Hotseat duel: route decisions to per-slot engines and send slot-parameterized commands."""
+        from .duel_protocol import parse_mp_state
+        from .duel_engine import DuelState, duel_command, route_decision
+        snap = parse_mp_state(msg)
+        slot = snap.get("current_slot")
+        players = snap.get("players", {})
+        if slot not in self.duel_engines or not players or not snap.get("ready"):
+            return
+        shells_remaining = int(snap["shells"].get("remaining") or 0)
+        hp1 = players.get(1, {}).get("health")
+        hp3 = players.get(3, {}).get("health")
+        items1 = len(players.get(1, {}).get("items", []))
+        items3 = len(players.get(3, {}).get("items", []))
+        fingerprint = f"duel_{slot}_{snap.get('round_index')}_{shells_remaining}_{hp1}_{hp3}_{items1}_{items3}"
+        for engine_slot, engine in self.duel_engines.items():
+            engine.on_state_update(DuelState(engine_slot, players, snap.get("shells")))
+        if fingerprint == self.last_acted_phase:
+            return
+        self.last_acted_phase = fingerprint
+        if not self.watch_only:
+            state = DuelState(slot, players, snap.get("shells"))
+            decision = route_decision(state, self.duel_engines)
+            decision["round_index"] = int(snap.get("round_index") or 0)
+            self.log({"type": "decision", "slot": slot, **decision})
+            print(f"\n{C_YELLOW}[DUEL] 槽位{slot} 决策: {decision.get('reason', '')}{C_RESET}")
+            time.sleep(1.5)  # 给点思考时间（节目效果）
+            self.send_command(duel_command(decision, slot))
+
     def run(self):
         mode_str = "观察模式" if self.watch_only else "自动决策模式"
         auto_str = " + 全自动化" if self.auto_mode else ""
@@ -855,6 +946,9 @@ class BuckshotBot:
             for msg in messages:
                 msg_type = msg.get("type", "")
                 if msg_type == "game_state":
+                    if self.duel_mode:
+                        self._handle_duel_state(msg)
+                        continue
                     self.update_state(msg)
                     # 混合引擎：更新情报追踪
                     if self.hybrid:
@@ -945,9 +1039,21 @@ class BuckshotBot:
 
                 elif msg_type == "action_executed":
                     print(f"{C_GREEN}[游戏] 动作已执行: {msg.get('action')}{C_RESET}")
-                    # 混合引擎：处理道具使用结果（放大镜/手机/逆转器返回的情报）
+                    # 混合引擎：处理放大镜/手机情报，以及逆转器对既有知识的翻转。
                     if self.hybrid and msg.get("action") == "use_item":
-                        self.engine.on_action_executed(msg)
+                        if self.duel_mode:
+                            try:
+                                action_slot = int(msg.get("slot"))
+                            except (TypeError, ValueError):
+                                action_slot = -1
+                            if action_slot in self.duel_engines:
+                                intel_message = dict(msg)
+                                stolen_item = str(msg.get("stolen_item") or "")
+                                if msg.get("item") == "adrenaline" and stolen_item:
+                                    intel_message["item"] = stolen_item
+                                self.duel_engines[action_slot].on_action_executed(intel_message)
+                        else:
+                            self.engine.on_action_executed(msg)
                 elif msg_type == "error":
                     print(f"{C_RED}[游戏] 错误: {msg.get('message')}{C_RESET}")
                 elif msg_type == "connected":
@@ -960,7 +1066,8 @@ def main():
     watch_only = "--watch" in sys.argv
     auto_mode = "--no-auto" not in sys.argv
     hybrid = "--legacy" not in sys.argv  # 默认混合引擎，--legacy 用旧透视引擎
-    bot = BuckshotBot(watch_only=watch_only, auto_mode=auto_mode, hybrid=hybrid)
+    duel_mode = "--duel" in sys.argv  # 热座双人对打：每槽位独立引擎
+    bot = BuckshotBot(watch_only=watch_only, auto_mode=auto_mode, hybrid=hybrid, duel_mode=duel_mode)
     try:
         bot.run()
     except KeyboardInterrupt:
@@ -978,7 +1085,10 @@ def main():
         bot.log({"type": "session_end", "wins": bot.wins, "losses": bot.losses})
         bot.save_logs()
         print(f"\n按回车键关闭窗口...")
-        input()
+        try:
+            input()
+        except EOFError:
+            pass  # 后台运行无 stdin：直接退出
 
 
 if __name__ == "__main__":

@@ -71,6 +71,11 @@ their presence here does not make the full livestream runnable from this repo.
   text-to-speech with voice-cloned timbres (CosyVoice), or borrowed from the
   realtime engine as an alternate output path.
 - **Hearing** (`lumi_asr.py`) — streaming speech recognition for live voice input.
+- **Standalone Qwen voice** (`qwen3_tts.py`, `qwen_audio_tts.py`) — complete-sentence
+  PCM, ordered playback, cancellation and outcome reporting, with shared per-character
+  gain in `role_volume.py` and output controls in `speech_pauses.py` / `spoken_output.py`.
+  These backends need explicit integration; the old launcher does not select them.
+  See [setup and limitations (中文)](docs/VOICE_MODULES.md).
 - **Long-term memory** (`memory/`) — per-viewer and self memory in SQLite, distilled
   by an LLM, with deterministic membership facts and time decay so stale topics stop
   dominating later streams.
@@ -103,6 +108,8 @@ speech_output_arbiter.py # one voice holds the floor at a time
 conversation.py          # text-pipeline orchestration and history mirroring
 realtime_chat*.py        # dual realtime speech-to-speech sessions
 lumi_asr.py / lumi_tts.py / cosyvoice_tts.py / tts_emitter.py
+qwen3_tts.py / qwen_audio_tts.py / role_volume.py
+speech_pauses.py / spoken_output.py
 memory/                  # SQLite memory, extraction, decay and deterministic facts
 games/                   # one directory per game; shared word-game worker
 docs/                    # architecture and game engineering notes
@@ -111,6 +118,8 @@ tests/                   # zero-dependency public-core checks
 
 See [games/README.md](games/README.md) for game entry points and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the complete data flow.
+The [2026-11-12 update notes (中文)](docs/releases/2026-11-12-source-refresh.md)
+describe the ported improvements and the limits of offline verification.
 
 ## Getting started
 

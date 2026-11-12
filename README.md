@@ -43,6 +43,7 @@ macOS / Linux 如果使用 `python3` 命令，请将最后一行改为 `python3 
 | 怎样避免同时占用语音输出 | 发声前申请、完成后释放，支持排队、丢弃和打断策略 | [speech_output_arbiter.py](speech_output_arbiter.py) |
 | 模块怎样共享节目状态 | 进程内事件总线与全局状态机 | [event_bus.py](event_bus.py)、[state_machine.py](state_machine.py) |
 | 怎样接入模型与语音 | 文本快脑、双角色实时语音会话、流式 TTS 与 ASR | [fast_brain.py](fast_brain.py)、[realtime_chat.py](realtime_chat.py)、[lumi_tts.py](lumi_tts.py)、[lumi_asr.py](lumi_asr.py) |
+| 怎样独立接入 Qwen 合成与播放 | 整句 PCM、播放结果、取消与分角色音量 | [语音模块指南](docs/VOICE_MODULES.md)、[qwen3_tts.py](qwen3_tts.py) |
 | 怎样延续观众与角色的记忆 | SQLite 存储、事实提取、确定性事实与时间衰减 | [memory/](memory/) |
 | 怎样让 AI 参与游戏 | 恶魔轮盘、泰拉瑞亚、王国保卫战、Wordle、汉兜的桥接与决策代码 | [游戏入口与说明](games/README.md) |
 
@@ -65,6 +66,8 @@ macOS / Linux 如果使用 `python3` 命令，请将最后一行改为 `python3 
 先运行 [main.py](main.py)，再按[快速开始中的读代码路线](docs/GETTING_STARTED.md#5-下一步读哪些代码)看调度器和仲裁器。深入某个子系统时可以参考：
 
 - [整体架构与数据流](docs/ARCHITECTURE.md)
+- [本次源码更新与验证范围](docs/releases/2026-11-12-source-refresh.md)
+- [独立语音模块与配置](docs/VOICE_MODULES.md)
 - [游戏目录与入口](games/README.md)
 - [泰拉瑞亚模组安装与后台控制说明](games/terraria/mod/README.md)
 - [泰拉瑞亚行为树设计](docs/games/terraria-behavior-tree.md)
@@ -79,6 +82,8 @@ speech_output_arbiter.py  # 谁占用语音输出
 conversation.py           # 文本链路对话编排与历史镜像
 realtime_chat*.py         # 实时语音会话与协议
 lumi_asr.py / lumi_tts.py / cosyvoice_tts.py / tts_emitter.py
+qwen3_tts.py / qwen_audio_tts.py / role_volume.py
+speech_pauses.py / spoken_output.py
 memory/                   # 记忆存储、提取与衰减
 games/                    # 游戏桥接与决策
 tests/                    # 无外部服务的公开核心检查

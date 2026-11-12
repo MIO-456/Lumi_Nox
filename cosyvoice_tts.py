@@ -7,6 +7,10 @@
 依赖由 init() 注入（pyaudio / AEC 参考缓冲 / 监听设备 / 日志），避免与 lumi_tts 循环 import。
 播放/声卡/AEC/监听机器与老链路一致；合成核心走 CosyVoice 流式（streaming_call /
 streaming_complete / streaming_cancel + ResultCallback.on_data 收 PCM 帧）。
+
+首帧超时 + 单次重放：喂第一句后启动看门狗，first_frame_timeout 秒内没收到第一帧音频
+就取消当前会话、新建会话把已喂句子重放一遍（最多 max_retries 次）。首帧始终不到时
+finish() 直接放弃，不再干等服务端自己的 60 秒超时。逻辑全在本文件内闭环，对上层透明。
 """
 
 import os
@@ -20,6 +24,8 @@ import dashscope
 from dashscope.audio.tts_v2 import SpeechSynthesizer, ResultCallback, AudioFormat
 from scipy.signal import resample_poly
 from dotenv import load_dotenv
+
+import role_volume
 
 # ======= 注入依赖（由 init() 设置）=======
 _pa_instance = None
@@ -52,11 +58,25 @@ def set_monitor_device(index):
     _monitor_device_index = index
 
 
+def _make_synthesizer(model, voice, callback):
+    """创建一个 CosyVoice 流式合成会话。抽成模块函数是为了重放时重建会话、以及单测可注入假引擎。"""
+    return SpeechSynthesizer(
+        model=model, voice=voice,
+        format=AudioFormat.PCM_24000HZ_MONO_16BIT,
+        callback=callback,
+    )
+
+
 class IndependentSynth:
     """CosyVoice 流式合成器。open 建会话 + 启播放线程；feed 按句 streaming_call；
-    finish 提交并等播完；abort 取消。音频帧写指定声卡 + 监听 + AEC（24k→16k 重采样）。"""
+    finish 提交并等播完；abort 取消。音频帧写指定声卡 + 监听 + AEC（24k→16k 重采样）。
 
-    def __init__(self):
+    首帧看门狗：喂第一句后启动，first_frame_timeout 秒没等到第一帧音频就取消当前会话、
+    新建会话重放已喂句子（最多 max_retries 次）；两次都没首帧则标记放弃，finish 不再等服务端超时。"""
+
+    def __init__(self, first_frame_timeout=4.0, max_retries=1, speaker="Lumi"):
+        role_volume.get_volume(speaker)
+        self._speaker = speaker
         self._syn = None
         self._cable_index = None
         self._audio_stream = None
@@ -70,11 +90,34 @@ class IndependentSynth:
         self._audio_chunk_count = 0
         self._opened = False
 
+        # ---- 首帧超时 + 重放 ----
+        self._first_frame_timeout = first_frame_timeout
+        self._max_retries = max_retries
+        self._voice_id = None
+        self._model = None
+        self._first_frame = Event()   # 收到第一帧音频
+        self._resolved = Event()      # 已决议：要么首帧到、要么彻底放弃
+        self._fed_sentences = []      # 已喂句子，供重放
+        self._session_lock = Lock()   # 保护会话切换（看门狗重放 vs 上层继续 feed）
+        self._retry_count = 0
+        self._gave_up = False
+        self._watchdog = None         # threading.Timer
+
     # ---- 生命周期 ----
     def open(self, voice_id, model, cable_index):
         self._cable_index = cable_index
         self._audio_chunk_count = 0
         self._audio_state = {"closed": False}
+
+        # 重置首帧/重放状态
+        self._voice_id = voice_id
+        self._model = model
+        self._first_frame.clear()
+        self._resolved.clear()
+        self._fed_sentences = []
+        self._retry_count = 0
+        self._gave_up = False
+        self._watchdog = None
 
         _audio_fpb = 4800  # 200ms @24kHz，撑过句间空档避免 underrun
         self._audio_stream = None
@@ -112,22 +155,56 @@ class IndependentSynth:
         self._playback_thread.start()
 
         # CosyVoice 流式合成器：PCM 24kHz，回调收音频帧。连接在首次 streaming_call 惰性建立。
-        self._syn = SpeechSynthesizer(
-            model=model, voice=voice_id,
-            format=AudioFormat.PCM_24000HZ_MONO_16BIT,
-            callback=self._make_callback(),
-        )
+        self._syn = _make_synthesizer(model, voice_id, self._make_callback())
         self._opened = True
 
     def feed(self, text):
-        if self._opened and text:
-            self._syn.streaming_call(text)
+        if not (self._opened and text):
+            return
+        with self._session_lock:
+            if self._gave_up:
+                return
+            self._fed_sentences.append(text)
+            is_first = len(self._fed_sentences) == 1
+            try:
+                self._syn.streaming_call(text)
+            except TimeoutError as exc:
+                self._recover_connect_timeout_locked(exc)
+        if is_first and not self._resolved.is_set():
+            self._start_watchdog()
 
     def finish(self):
         if not self._opened:
             return
+        if not self._fed_sentences:
+            # 没喂过任何句子（看门狗从未启动）：无首帧决议可等，按原逻辑正常关流。
+            try:
+                self._syn.streaming_complete()
+            except Exception as e:
+                _log_fn(f"[CosyVoice·complete异常] {e}")
+            self._cleanup(interrupted=False)
+            return
+        # 先等首帧决议：要么第一帧音频到了（会话正常），要么看门狗把重试用尽标记放弃。
+        # 兜底超时留足两道看门狗 + 余量，避免 _resolved 因异常永不 set 而卡死。
+        budget = (self._max_retries + 1) * self._first_frame_timeout + 1.0
+        self._resolved.wait(timeout=budget)
+        self._cancel_watchdog()
+
+        with self._session_lock:
+            gave_up = self._gave_up or not self._first_frame.is_set()
+
+        if gave_up:
+            # 首帧始终没来：取消会话、打无音频日志，绝不调 streaming_complete（否则会干等服务端 60 秒超时）。
+            try:
+                self._syn.streaming_cancel()
+            except Exception:
+                pass
+            _log_fn("[CosyVoice·无音频] 未收到任何音频帧")
+            self._cleanup(interrupted=True)
+            return
+
         try:
-            # 阻塞到服务端合成完毕（所有 on_data 已回调 + on_complete）。
+            # 首帧已到、会话正常，阻塞到服务端合成完毕（所有 on_data 已回调 + on_complete）。
             self._syn.streaming_complete()
         except Exception as e:
             _log_fn(f"[CosyVoice·complete异常] {e}")
@@ -138,11 +215,92 @@ class IndependentSynth:
     def abort(self):
         if not self._opened:
             return
+        self._cancel_watchdog()
+        self._resolved.set()
         try:
             self._syn.streaming_cancel()
         except Exception:
             pass
         self._cleanup(interrupted=True)
+
+    # ---- 首帧看门狗 + 重放 ----
+    def _start_watchdog(self):
+        if self._resolved.is_set():
+            return
+        w = threading.Timer(self._first_frame_timeout, self._on_first_frame_timeout)
+        w.daemon = True
+        self._watchdog = w
+        w.start()
+
+    def _cancel_watchdog(self):
+        w = self._watchdog
+        if w is not None:
+            w.cancel()
+
+    def _recover_connect_timeout_locked(self, error):
+        """首次 streaming_call 建连超时时，限次重建会话并重放已喂文本。
+
+        必须在 _session_lock 内调用。重试仍超时就把本轮标记为无音频并返回，
+        让上层 speak() 正常收尾释放状态，不能把异常抛到主循环造成永久占锁。
+        """
+        while True:
+            if self._retry_count >= self._max_retries:
+                try:
+                    self._syn.streaming_cancel()
+                except Exception:
+                    pass
+                self._gave_up = True
+                self._resolved.set()
+                _log_fn(f"[CosyVoice·建连超时] 重试已用尽，放弃本轮合成: {error}")
+                return
+
+            self._retry_count += 1
+            _log_fn(
+                f"[CosyVoice·建连超时] 重建会话并重放(第{self._retry_count}次): {error}"
+            )
+            try:
+                self._syn.streaming_cancel()
+            except Exception:
+                pass
+            self._syn = _make_synthesizer(
+                self._model, self._voice_id, self._make_callback()
+            )
+            try:
+                for sentence in self._fed_sentences:
+                    self._syn.streaming_call(sentence)
+                return
+            except TimeoutError as exc:
+                error = exc
+
+    def _on_first_frame_timeout(self):
+        with self._session_lock:
+            if self._first_frame.is_set():
+                return  # 首帧在临界处刚到，放弃重放
+            if self._retry_count >= self._max_retries:
+                # 重试用尽，彻底放弃：唤醒 finish 走放弃路径。
+                self._gave_up = True
+                self._resolved.set()
+                _log_fn("[CosyVoice·首帧超时] 重试已用尽，放弃本轮合成")
+                return
+            self._retry_count += 1
+            _log_fn(f"[CosyVoice·首帧超时] {self._first_frame_timeout}s 未收到音频，"
+                    f"取消并重放(第{self._retry_count}次)")
+            try:
+                self._syn.streaming_cancel()
+            except Exception:
+                pass
+            # 新建会话，把已喂句子按顺序重放一遍。
+            self._syn = _make_synthesizer(self._model, self._voice_id, self._make_callback())
+            for sentence in self._fed_sentences:
+                try:
+                    self._syn.streaming_call(sentence)
+                except Exception as e:
+                    _log_fn(f"[CosyVoice·重放异常] {e}")
+            # 起下一道看门狗（第二次机会）。
+            w = threading.Timer(self._first_frame_timeout, self._on_first_frame_timeout)
+            w.daemon = True
+            self._watchdog = w
+            w.start()
 
     # ---- 内部 ----
     def _make_callback(self):
@@ -153,6 +311,10 @@ class IndependentSynth:
                 pass
 
             def on_data(self, data: bytes):
+                if not synth._first_frame.is_set():
+                    synth._first_frame.set()
+                    synth._resolved.set()
+                    synth._cancel_watchdog()
                 synth._audio_chunk_count += 1
                 synth._playback_queue.put_nowait(data)
 
@@ -173,6 +335,7 @@ class IndependentSynth:
             if item is None:
                 break
             try:
+                item = role_volume.scale_pcm16(item, self._speaker)
                 with self._audio_write_lock:
                     if self._audio_state["closed"]:
                         break
