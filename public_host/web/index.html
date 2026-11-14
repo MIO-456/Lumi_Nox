@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Lumi_Nox · 公开运行台</title><link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top"><div><span class="eyebrow">LUMI_NOX / OPEN HOST</span><h1>让你的角色，开始说话。</h1><p>连接自己的模型与声音，在这里完成第一场对话。</p></div><span id="status-pill" class="pill">尚未开始</span></header>
+  <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+  <main>
+    <aside class="panel setup">
+      <div class="panel-title"><div><span class="eyebrow">01 / SETUP</span><h2>连接与角色</h2></div><span id="saved" class="muted">本机配置</span></div>
+      <fieldset id="configuration"><legend class="sr-only">会话配置</legend>
+        <label class="field">运行模式<select id="mode"><option value="live">真实服务 · 模型与语音</option><option value="demo">离线演示 · 无声，不连接外部服务</option></select></label>
+        <p class="hint">第一次使用可先选离线演示，熟悉开始、输入和停止。</p>
+        <div class="tabs" role="tablist" aria-label="配置类别"><button type="button" id="service-tab" role="tab" aria-selected="true" aria-controls="service-panel">服务</button><button type="button" id="roles-tab" role="tab" aria-selected="false" aria-controls="roles-panel">角色与皮套</button></div>
+        <div id="service-panel" role="tabpanel" aria-labelledby="service-tab">
+          <div id="services"></div>
+          <h3>音频输出</h3><label class="field">播放设备<select id="device"><option value="">系统默认设备</option></select></label><button id="devices" type="button" class="text-button">刷新设备列表</button>
+          <p class="hint">真实语音需要安装 requirements-host.txt。虚拟声卡可在这里选择，再交给 OBS 采集。</p>
+        </div>
+        <div id="roles-panel" role="tabpanel" aria-labelledby="roles-tab" hidden><div id="roles"></div><p class="hint">VTS 为可选项。Hiyori 请从官方来源自行安装；宿主不附带模型。先验证一个角色，再启用第二个。</p></div>
+      </fieldset>
+      <div class="save-bar"><button id="save" class="primary">保存本机配置</button><span class="hint">Key 仅保存在本机，保存后不回显。</span></div>
+    </aside>
+    <section class="workspace">
+      <div class="panel session">
+        <div class="panel-title"><div><span class="eyebrow">02 / SESSION</span><h2>对话现场</h2></div><div class="controls"><button id="start" class="primary">开始会话</button><button id="stop" disabled>停止会话</button></div></div>
+        <div class="session-meta"><span id="phase">保存配置后即可开始</span><span id="queue">等待输入</span></div>
+        <div id="demo-note" class="demo-note" hidden>离线演示：回复是示例文本，不调用模型、不播放声音、不连接 VTS。</div>
+        <div id="messages" class="messages" aria-live="polite"><div class="empty"><span class="empty-icon">◌</span><h3>从一句「你好」开始</h3><p>角色会依次回应，也可以指定其中一位。<br>只有播放结束，才交给下一个角色。</p></div></div>
+        <form id="composer"><label class="sr-only" for="input">输入消息或要朗读的文字</label><textarea id="input" rows="3" maxlength="12000" placeholder="写一句话给角色，或填写要直接朗读的内容…" disabled></textarea><div class="composer-bottom"><label>回应角色 <select id="speaker" aria-label="回应角色"><option value="">自动轮换</option></select></label><div><button id="interrupt" type="button" class="text-button" disabled>打断当前</button><button id="say" type="button" disabled>直接朗读</button><button id="send" type="submit" class="primary" disabled>发送消息 ↗</button></div></div></form>
+      </div>
+      <div class="panel checks"><div class="panel-title"><div><span class="eyebrow">03 / CHECK</span><h2>连接检查</h2></div><span class="muted">会产生一次服务请求</span></div><div class="check-actions"><button id="probe">测试聊天连接</button><select id="preview-role" aria-label="试听角色"></select><button id="preview">试听声音</button></div><p id="check-result" class="hint">先保存配置。检查与试听在会话停止时使用，避免打断正在说话的角色。</p><div id="model-results"></div></div>
+      <details class="panel events"><summary>运行事件 <span class="muted">查看完成、取消和失败</span></summary><pre id="events"></pre></details>
+    </section>
+  </main>
+  <footer>通用能力公开，角色由你定义。<span>仅本机访问 · 不自动开播</span></footer>
+</body>
+</html>

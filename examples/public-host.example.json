@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "mode": "live",
+  "llm": {
+    "provider": "openai-compatible",
+    "base_url": "",
+    "model": "",
+    "api_key": "",
+    "timeout": 30,
+    "max_tokens": 256,
+    "token_limit_field": "max_tokens"
+  },
+  "tts": {
+    "provider": "openai-compatible",
+    "base_url": "",
+    "model": "",
+    "api_key": "",
+    "timeout": 30
+  },
+  "audio": {
+    "device": null
+  },
+  "roles": [
+    {
+      "name": "示例A",
+      "enabled": true,
+      "system_prompt": "你是一个友好的虚拟主播，用简短自然的话回答观众。",
+      "voice": "",
+      "avatar": {
+        "enabled": false,
+        "url": "ws://127.0.0.1:8001",
+        "model_id": "",
+        "mouth_parameter": "MouthOpen",
+        "mouth_gain": 1.0
+      }
+    },
+    {
+      "name": "示例B",
+      "enabled": false,
+      "system_prompt": "你是一个友好的虚拟主播，用简短自然的话回答观众。",
+      "voice": "",
+      "avatar": {
+        "enabled": false,
+        "url": "ws://127.0.0.1:8002",
+        "model_id": "",
+        "mouth_parameter": "MouthOpen",
+        "mouth_gain": 1.0
+      }
+    }
+  ]
+}

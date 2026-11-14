@@ -6,7 +6,8 @@ stage in real time.
 
 ## Start here
 
-Source modules are grouped into `core/`, `dialogue/`, `audio/` and `settings/`.
+Source modules are grouped into `core/`, `dialogue/`, `audio/` and `settings/`,
+with a generic runnable host in `public_host/`.
 Use their qualified import paths; the root `main.py` and existing `games/` entry
 points remain available. See [the layout and migration guide](PACKAGE_LAYOUT.md).
 
@@ -15,6 +16,52 @@ state machine, speaker scheduler, speech-output arbiter) and drives two example
 characters through a short co-hosted segment — with no API keys, audio or models.
 Run `python main.py` and read it alongside this document; it is the smallest
 complete picture of how the parts connect.
+
+Run `python -m public_host` for an interactive local UI at
+`http://127.0.0.1:8765`. Select offline demo mode for a standard-library-only
+session, or configure your own chat and speech services for actual audio.
+See the [public host guide](PUBLIC_HOST.md) and [VTS example](VTS_EXAMPLE.md).
+
+## Public host data flow
+
+The host wires a small, explicit text-to-speech path:
+
+```text
+Local web UI -> Session queue -> Speaker scheduler -> Speech arbiter
+                                                          |
+                                                    Chat adapter
+                                                          |
+                                                     TTS adapter
+                                                          |
+                        optional VTS mouth input <- Audio playback
+                                                          |
+                                 completion / cancellation / failure
+```
+
+`public_host/server.py` serves the local configuration and controls. One session
+worker in `session.py` handles one or two enabled characters, viewer text and
+direct speech. The chosen character's prompt and conversation history go to the
+chat adapter; direct speech skips the chat model. Automatic rotation is per
+submitted message, not autonomous background conversation.
+
+The adapters in `providers.py` currently implement non-streaming
+`/chat/completions` and `/audio/speech` returning a complete 16-bit PCM WAV.
+`playback.py` waits for actual audio completion before committing a successful
+turn. Cancellation invalidates the old turn so late service results cannot speak
+or enter completed history; a blocked network call may still need its configured
+timeout to return. Demo uses explicit simulated results instead of claiming audio
+was played.
+
+`avatar.py` optionally sends the playing audio's level to a configured VTS input.
+First authorization is an explicit user action. Users load their own model in VTS;
+the adapter checks its ID, stops on a detected model change, and closes only its
+own connection. A pair of characters must use separate VTS ports. Models and
+private motion assets are not bundled.
+
+This host does not automatically connect the separately published ASR, realtime
+voice, memory or game modules, nor the production broadcast platform, OBS or full
+director. The following module overview explains those available building blocks,
+not additional behavior enabled by starting the public host.
 
 ## The core idea
 
@@ -25,7 +72,7 @@ current production default. The characters stay aware of each other through **hi
 arbiter**. Everything is coordinated over an **event bus** anchored to a global
 **state machine**.
 
-## Data flow of a chat turn
+## Data flow supported by the separate conversation modules
 
 1. Viewer chat and partner hand-offs enter the **speaker scheduler**, which decides
    who speaks next (@-mentions, prioritized viewer queue, rotation).
@@ -46,6 +93,7 @@ arbiter**. Everything is coordinated over an **event bus** anchored to a global
 
 | Area | Files | Responsibility |
 |---|---|---|
+| Public host | `public_host/` | Local configuration and UI, explicit chat/TTS adapters, one- or two-character session lifecycle, audio playback and optional VTS mouth movement. |
 | Coordination | `core/event_bus.py`, `core/state_machine.py` | In-process pub/sub + request/response, and the single source of truth for what the stream is doing. |
 | Turn-taking | `core/speaker_scheduler.py`, `core/speech_output_arbiter.py` | Who speaks next; and one voice at a time (QUEUE / DROP / INTERRUPT). |
 | Realtime voice | `audio/realtime_chat.py`, `audio/realtime_chat_protocol.py` | Dual end-to-end session pool over doubao SC2.0; attribution; audio routing; cross-character history mirroring. |
@@ -71,26 +119,35 @@ bridge handshake. Stop targets only the process owned by that startup. Buckshot
 includes independent duel decision/protocol helpers, but a compatible game-side
 duel bridge is not bundled. See [game notes](../games/README.md).
 
-`settings/voice_config.py` holds per-character runtime config; the example characters ship
+The public host keeps its own configuration and credentials in ignored
+`.local-host/` files (or the explicitly selected `--data-dir`). It never loads a
+parent `.env`, private production configuration or production VTS tokens. The UI
+does not receive saved API keys; users configure their own service endpoints,
+models and voices. See [the host guide](PUBLIC_HOST.md) for storage and setup.
+
+For the older modules, `settings/voice_config.py` holds per-character runtime config; the example characters ship
 with placeholder values. `settings/voice_registry.py` resolves optional cloned voices from
-the user's environment and falls back safely when none are supplied. All API keys
-are read from environment variables (see `.env.example`) — none are stored in the
-repository.
+the user's environment and falls back safely when none are supplied. Their API keys
+are read from environment variables (see `.env.example`). Actual credentials are
+not distributed in the repository.
 
 ## What's here, and what's not
 
-This repository contains the orchestration core, the realtime dual-AI engine, the
+This repository contains the generic public host, its basic VTS adapter, the
+orchestration core, the realtime dual-AI engine, the
 voice (TTS) and hearing (ASR) layers, long-term memory, and five games as a
 showcase (Buckshot Roulette, Terraria, Kingdom Rush, Wordle and Handle).
 
 Intentionally **not** included:
 
 - The characters' persona prompts, IP and worldview (the closed "soul").
-- The Live2D avatar / motion / expression layer — tied to specific character models.
+- Live2D model files and private motion/expression assets. The generic VTS
+  authentication and audio-level mouth adapter is public; see [VTS setup](VTS_EXAMPLE.md).
 - Production voice ids, voiceprints, viewer databases, logs and operations data.
 - The commercial game binaries the game bridge talks to.
-- The remaining game bot (Fireboy & Watergirl), vision, drawing, and the live
-  director / control console — opened incrementally over time.
+- The remaining game bot (Fireboy & Watergirl), vision and drawing runtimes, and
+  the full production director/control console. The public host's separate local
+  UI and basic orchestration are included.
 
 ## Open-core
 

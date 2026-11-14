@@ -13,6 +13,7 @@ games/terraria/mod/**/obj/
 
 # Secrets / runtime (never commit)
 config.py
+!public_host/config.py
 *token*.txt
 *cookies*.json
 logs/
@@ -20,6 +21,7 @@ recordings/
 *.db
 role_volumes.json
 sample.wav
+.local-host/
 
 # OS / editor
 .DS_Store

@@ -1,6 +1,27 @@
-# 独立语音模块
+# 语音接入与独立模块
 
-这批公开了 Qwen 合成与播放后端，供独立接线使用。`main.py` 仍是无声的标准库演示；现有 `audio/lumi_tts.py` 和 `core/run_architecture.py` 没有自动切换到 Qwen。这里不包含角色音色或完整直播启动器。
+希望先让自己的角色说话，可以使用[通用公开宿主](PUBLIC_HOST.md)。它提供启动入口、本机配置页和基础对话接线；下面的独立 Qwen/CosyVoice 模块则保留供更深入的接入使用。两条路径不共用同一套配置，也不会自动互相切换。
+
+## 通用宿主：先配置一条完整语音链路
+
+在仓库根目录运行：
+
+```bash
+python -m pip install -r requirements-host.txt
+python -m public_host
+```
+
+打开 `http://127.0.0.1:8765`，填写自己的聊天与语音基础地址、模型、所需密钥，以及每位角色可用的音色名或 ID。先保存配置、测试聊天连接与试听声音，再开始会话；检查和试听会真实访问你配置的服务。仅体验无声离线演示时不需要安装上述依赖。
+
+宿主的 `public_host/providers.py` 当前使用 `/audio/speech`，发送 `model`、`input`、`voice`、`response_format: "wav"`，接收完整、未压缩的 16 位 PCM WAV。支持单声道或双声道、8–96 kHz，单次语音最长 120 秒。`public_host/playback.py` 使用 sounddevice 输出，等待音频播放结束后才记为完成；停止或打断后，迟到的合成结果不会继续播放。
+
+**接口名称相同不代表任意 TTS 都能直接使用。** 返回 MP3、原始 PCM、SSE 或厂商专有 WebSocket 数据的服务需要另写适配器；下面的 Qwen SSE 模块尚未自动接入这个宿主。相同协议内更换服务通常只需更新配置，不同协议应适配 `synthesize()` 返回的音频格式，避免把服务细节写进调度器。
+
+本机设置与凭据保存在 `.local-host/`，不自动读取旧模块的 `.env`。可选 [VTS 嘴型](VTS_EXAMPLE.md)取自实际播放音频的音量；声卡设备、真实服务、音色和模型效果均需自行实测。公开宿主不包含私人声线、角色模型或正式直播完整中控。
+
+## 独立 Qwen 与既有语音模块
+
+这些后端供调用者自行接线。`main.py` 仍是无声的标准库终端演示；现有 `audio/lumi_tts.py` 和 `core/run_architecture.py` 没有自动切换到 Qwen。
 
 ## 模块与条件
 
@@ -13,7 +34,7 @@
 | `audio/role_volume.py` | 分角色音量、PCM 增益与削波；本地设置 `role_volumes.json` 已忽略，不随源码发布。示例角色键沿用 `Lumi` / `Nox`，不代表提供真实声线。 |
 | `audio/spoken_output.py`、`audio/speech_pauses.py` | 清理格式和控制标签；支持的模型可使用经过校验的停顿。只处理明确格式，不保证识别所有自然语言旁白。 |
 
-依赖见 [requirements.txt](../requirements.txt)。音频设备路径使用 Windows 的 PyAudioWPatch；标准库演示和离线测试不要求安装这些库。移植其他平台音频输出是额外工作。
+这些独立模块的依赖见 [requirements.txt](../requirements.txt)。它们的音频设备路径使用 Windows 的 PyAudioWPatch；标准库演示和离线测试不要求安装这些库。移植这些模块的音频输出到其他平台是额外工作；公开宿主使用单独的 [requirements-host.txt](../requirements-host.txt) 与 sounddevice 播放路径。
 
 ## 最小调用：合成为 WAV，不播放
 
@@ -51,4 +72,4 @@ with wave.open("sample.wav", "wb") as output:
 
 ## 本次验证范围
 
-离线测试替换网络、SDK 和声卡，检查重试、半句丢弃、取消、播放失败、停顿控制和旧 emitter 调用兼容性。本次没有调用真实模型、打开声卡、实听或验证整场直播；真实音色效果、设备路由及服务端兼容性需要使用者在自己的环境验收。
+独立模块的离线测试替换网络、SDK 和声卡，检查重试、半句丢弃、取消、播放失败、停顿控制和旧 emitter 调用兼容性。宿主测试另外检查兼容接口响应、播放完成与取消、会话收尾以及 VTS 替身交互。这些测试没有调用真实模型、打开声卡或验证 Hiyori 和整场直播；真实音色效果、设备路由及服务端兼容性需要使用者在自己的环境验收。
