@@ -26,3 +26,7 @@ sample.wav
 Thumbs.db
 .idea/
 .vscode/
+
+# Locally installed agent skills (per-machine tooling, not project source)
+.agents/
+skills-lock.json

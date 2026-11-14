@@ -25,7 +25,7 @@ python -m unittest discover -s tests -v
 python -m compileall -q .
 ```
 
-`main.py` 会自动跑完一段终端演示，以 `demo complete` 结束。它用占位脑和占位语音驱动真实调度器与语音仲裁器，不会生成真实语音或连接直播。当前测试集为 7 项；GitHub Actions 在 Ubuntu / Python 3.12 上运行编译与测试，其中一项测试也会运行这个演示。
+`main.py` 会自动跑完一段终端演示，以 `demo complete` 结束。它用占位脑和占位语音驱动真实调度器与语音仲裁器，不会生成真实语音或连接直播。当前测试集为 88 项（10 个文件）；GitHub Actions 在 Ubuntu / Python 3.12 上运行编译与测试，其中一项测试也会运行这个演示。
 
 具体上手步骤见[快速开始](docs/GETTING_STARTED.md)。完整语音或游戏模块可能需要额外依赖、自己的服务凭据与游戏环境，分别参阅 [README](README.md)、[游戏说明](games/README.md)和对应模块文档。
 

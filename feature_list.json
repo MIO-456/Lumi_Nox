@@ -1,0 +1,51 @@
+{
+  "features": [
+    {
+      "id": "verify-01",
+      "name": "离线基线可重复",
+      "description": "从干净检出开始，零依赖跑通演示、编译与全部离线测试，且不触碰网络、声卡、游戏或模型。",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "python main.py -> '=== demo complete ==='; python -m compileall -q . -> exit 0; python -m unittest discover -s tests -> 'Ran 88 tests ... OK'",
+      "verification": "./init.ps1 (Windows) 或 ./init.sh (macOS/Linux)"
+    },
+    {
+      "id": "doc-01",
+      "name": "分层文档体系",
+      "description": "入口文件只做路由（AGENTS.md），专题内容按主题拆到 docs/，每篇带何时读/何时不用读/复核元信息，并有脚本守住链接与行数预算。",
+      "dependencies": ["verify-01"],
+      "status": "done",
+      "evidence": "新增 AGENTS.md、docs/README.md、DEVELOPMENT/TESTING/CONVENTIONS/GLOSSARY；python scripts/check_docs.py -> 'docs ok: 24 files, links resolve, budgets hold.'",
+      "verification": "python scripts/check_docs.py"
+    },
+    {
+      "id": "doc-02",
+      "name": "文档季度审计",
+      "description": "每季度核对一次：删除失效条目、合并重复主题、把入口文件里低频规则移回专题文档。审计记录追加到 progress.md。",
+      "dependencies": ["doc-01"],
+      "status": "not-started",
+      "evidence": "",
+      "verification": "python scripts/check_docs.py 通过，且 progress.md 有审计记录"
+    },
+    {
+      "id": "contrib-01",
+      "name": "交互式终端演示",
+      "description": "为 main.py 增加可选的手动输入弹幕模式：输入一条消息，经真实调度器选择角色，由占位脑返回示例回复，支持继续与退出。仍保持零依赖、无声。",
+      "dependencies": ["verify-01"],
+      "status": "not-started",
+      "evidence": "",
+      "verification": "点名 Lumi / Nox 时路由正确；无点名时正常轮换；退出干净；原有演示与 88 项测试继续通过",
+      "scope": "docs/CONTRIBUTION_TASKS.md 中的『可独立开始』一节"
+    },
+    {
+      "id": "ci-01",
+      "name": "Windows CI 并行任务",
+      "description": "在现有 GitHub Actions 中补一台 Windows 临时机器，运行与 Ubuntu 相同的编译与测试，提前暴露路径、编码等平台差异。",
+      "dependencies": ["verify-01"],
+      "status": "not-started",
+      "evidence": "",
+      "verification": "两个平台的 job 均通过编译与测试",
+      "scope": "只改 .github/workflows/ci.yml，不做整套直播的跨平台承诺"
+    }
+  ]
+}
