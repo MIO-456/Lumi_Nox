@@ -21,7 +21,7 @@ def main():
     except (ProviderError, OSError):
         parser.exit(1, "无法启动控制页，请检查端口或本机配置文件。\n")
     print(f"公开宿主控制页：http://127.0.0.1:{server.server_port}", flush=True)
-    print("在页面保存配置并开始；首次可选择离线演示。Ctrl+C 退出。", flush=True)
+    print("首次可直接点“体验聊天”进入无声直播间；接真实服务请展开设置。Ctrl+C 退出。", flush=True)
     try:
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:

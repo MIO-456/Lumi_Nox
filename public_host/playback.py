@@ -104,11 +104,29 @@ class AudioPlayer:
 
 
 class DemoPlayer:
+    def __init__(self, duration=0.1):
+        if (isinstance(duration, bool) or not isinstance(duration, (int, float))
+                or not math.isfinite(duration) or not 0.05 <= duration <= 10):
+            raise ProviderError("演示播放时长必须是 0.05–10 秒的有限数字。")
+        self.duration = duration
+
     def play(self, clip: AudioClip, cancel, on_level=None) -> str:
-        if cancel.wait(0.1):
-            raise Cancelled()
-        return "simulated"
+        deadline = time.monotonic() + self.duration
+        try:
+            while True:
+                check_cancel(cancel)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return "simulated"
+                if on_level:
+                    on_level(0.35 + 0.2 * math.sin(remaining * 12))
+                if cancel.wait(min(0.05, remaining)):
+                    raise Cancelled()
+        finally:
+            if on_level:
+                on_level(0.0)
 
 
 def make_player(config: dict):
-    return DemoPlayer() if config["mode"] == "demo" else AudioPlayer(config["audio"]["device"])
+    return (DemoPlayer(config.get("demo_playback_seconds", 0.1))
+            if config["mode"] == "demo" else AudioPlayer(config["audio"]["device"]))

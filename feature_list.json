@@ -68,6 +68,16 @@
       "evidence": "候选已实现并通过真实本机五子棋与无声 demo 节目流程检查，具体命令和验证边界以本次交付记录为准。正式导演候选共用调度层，尚未完成正式环境实机推广；不声称真实模型、声卡、VTS 或平台实播已验收。",
       "verification": "统一检查；安装 aiohttp 后运行五子棋和整场集成测试，并在浏览器核对实际落子、结算、回聊天与结束。真实服务/设备另行验收。",
       "scope": "docs/PUBLIC_DIRECTOR.md"
+    },
+    {
+      "id": "host-03",
+      "name": "本地虚拟直播间与调试舞台",
+      "description": "首屏通用双角色舞台、临时无声演示、字幕和音量状态、同屏五子棋、消息记录、请求阶段耗时、事件筛选及白名单元数据导出；保留真实服务设置。",
+      "dependencies": ["host-02"],
+      "status": "implemented",
+      "evidence": "2026-11-16：GitNexus 1.6.12 analyze --index-only --pdg 建立图谱，工程计划见 docs/plans/2026-11-16-gitnexus-plan-local-virtual-live-room.md。PYTHON=python bash ./init.sh：Python 3.14.7，230项全过，编译与28份文档检查通过；指定Python 3.12.14运行同一入口：230项，222通过、8项缺aiohttp跳过。node --test tests/test_public_room.js：23项全过；两份JS语法检查与git diff --check通过。实际浏览器验证聊天、轮换、字幕、真实棋盘落子、节目结算回聊天及结束、刷新恢复、服务重连与第二页面观察同场运行。未验证真实云服务、声卡或VTS。",
+      "verification": "统一Python检查、node --test tests/test_public_room.js、浏览器本机演示与窄屏检查；真实服务和设备另验。",
+      "scope": "docs/PUBLIC_HOST.md"
     }
   ]
 }

@@ -39,14 +39,16 @@ cd Lumi_Nox
 python -m public_host
 ```
 
-Open **http://127.0.0.1:8765**, select the offline demo mode and change the run method
-from the default programme mode to **manual conversation (手动对话)**. Save the local
-configuration, start a session and enter a message. The initial selection is real
-services; switch it to demo explicitly. Demo uses placeholder replies and the real
-scheduling/cancellation flow, but **makes no model calls, plays no audio and does
-not connect to VTS**. Its results are labelled simulated. No `pip install`, keys,
-audio hardware or models are required. Stop the session and press Ctrl+C in the
-terminal when finished. On macOS/Linux, use `python3` if needed.
+Open **http://127.0.0.1:8765**, click **Try chat (体验聊天)** and send a message through
+the local audience input. The first screen shows a stage with two generic CSS
+characters, status and subtitles; settings are in an expandable panel. Demo uses
+fixed sample replies and the real scheduling/cancellation flow, with about two
+seconds of simulated playback per reply. It **makes no model calls, plays no audio
+and does not connect to VTS**. The demo uses a separate temporary configuration in
+memory and does not overwrite saved settings. No `pip install`, keys, audio hardware
+or models are required. Refreshing or opening another page restores the same run.
+Stop the session and press Ctrl+C in the terminal when finished. On macOS/Linux,
+use `python3` if needed.
 
 For real audio, install `python -m pip install -r requirements-host.txt`, then
 configure your own service URLs, models, keys and voice IDs. The adapters support
@@ -56,10 +58,13 @@ adapter. See the [public host guide (中文)](docs/PUBLIC_HOST.md) and optional
 [VTS/Hiyori setup](docs/VTS_EXAMPLE.md). Real cloud services, audio devices
 and Hiyori still need verification in the user's environment.
 
-For the complete programme, install `python -m pip install aiohttp`, enable two
-differently named characters, and select programme mode. Gomoku plays and scores
-actual games even with silent demo services: moves come from local algorithms,
-not an LLM. See the [programme and Gomoku guide (中文)](docs/PUBLIC_DIRECTOR.md).
+For the complete programme, install `python -m pip install aiohttp`, stop any current
+session and click **Try full programme (体验完整节目)**. Gomoku appears on the same
+stage and plays and scores actual games with silent demo services; moves come from
+local rule algorithms. Real audio still uses one Python player on the host machine;
+the browser does not play audio. The CSS stage does not render Live2D or capture VTS
+video. See the [programme and Gomoku guide (中文)](docs/PUBLIC_DIRECTOR.md) for custom
+settings, ports and verification limits.
 
 ### The original terminal demo
 

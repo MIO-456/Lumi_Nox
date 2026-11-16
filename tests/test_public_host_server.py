@@ -66,6 +66,37 @@ class BlockedChat(FakeChat):
 
 
 class PublicHostHTTPTests(unittest.TestCase):
+    def test_temporary_room_demo_keeps_saved_config_and_rejects_stale_controls(self):
+        saved = self.app.store.load()
+        self.app.store.save(saved)
+        before = self.app.store.path.read_bytes()
+        code, started, _ = self.post("/api/demo", {"run_mode": "manual"})
+        self.assertEqual(code, 200)
+        self.assertEqual(started["mode"], "demo")
+        self.assertEqual(len(started["roles"]), 2)
+        self.assertEqual(self.app.store.path.read_bytes(), before)
+        ready = self.wait_status(lambda s: s["phase"] == "ready")
+        code, _, _ = self.post("/api/chat", {"text": "hello", "run_id": "stale"})
+        self.assertEqual(code, 409)
+        self.assertEqual(self.status()["requests"], [])
+        code, response, _ = self.post("/api/chat", {"text": "hello", "run_id": ready["run_id"]})
+        self.assertEqual(code, 200)
+        self.wait_status(lambda s: s["current_request"] is not None)
+        self.assertEqual(response["request_id"], self.status()["requests"][0]["request_id"])
+        self.post("/api/interrupt", {"run_id": ready["run_id"]})
+        self.wait_status(lambda s: s["requests"][0]["outcome"] == "cancelled")
+        self.assertEqual(self.app.store.path.read_bytes(), before)
+
+    def test_room_demo_reports_missing_gomoku_before_starting(self):
+        with patch.object(self.app, "capabilities", return_value={"gomoku": False}):
+            code, capabilities, _ = self.request("/api/capabilities")
+            self.assertEqual((code, capabilities["gomoku"]), (200, False))
+            code, response, _ = self.post("/api/demo", {"run_mode": "program"})
+            self.assertEqual(code, 400)
+            self.assertIn("aiohttp", response["error"])
+            self.assertFalse(self.status()["running"])
+            self.assertEqual(self.post("/api/demo", {"run_mode": "manual"})[0], 200)
+
     def test_program_http_preflight_and_nonblocking_end_controls(self):
         config = default_config()
         config["mode"] = "demo"

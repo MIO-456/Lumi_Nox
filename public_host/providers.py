@@ -173,7 +173,14 @@ class CompatibleSpeech:
 class DemoChat:
     def complete(self, messages: list[dict], cancel: Event) -> str:
         check_cancel(cancel)
-        return "[离线演示] 已收到：" + messages[-1]["content"][:180]
+        text = messages[-1]["content"]
+        if "欢迎" in text or "开场" in text:
+            return "欢迎来到我们的本地直播间！我们可以聊聊天，也可以来一场五子棋。给我们发条消息吧。"
+        if "告别" in text or "感谢观众" in text:
+            return "今天的直播就到这里，谢谢大家的陪伴。期待下次再见！"
+        if "小确幸" in text:
+            return "今天的小确幸，是终于在同一个画面里和大家见面了。你今天遇到什么开心的事了吗？"
+        return "[离线演示] 收到你的消息：" + text[:160] + "。这是无声示例，接入模型和语音后就能听到真实回复。"
 
 
 class DemoSpeech:

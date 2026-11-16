@@ -15,6 +15,7 @@ from core.speaker_scheduler import SpeakerScheduler
 from core.speech_output_arbiter import POLICY_DROP, SpeechOutputArbiter
 from core.state_machine import State, StateMachine
 from public_host.providers import Cancelled, ProviderError
+from public_host.telemetry import RequestTrace
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,10 @@ class Session:
         self._messages = deque(maxlen=100)
         self._events = deque(maxlen=200)
         self._results = {}
+        self._trace = RequestTrace()
+        self._run_id = ""
+        self._event_seq = 0
+        self._audio_level = 0.0
         self._cancelled_scopes = set()
         # Each entry is one completed conversation turn, including partner notes.
         self._histories = {name: deque(maxlen=20) for name in names}
@@ -78,7 +83,7 @@ class Session:
             "speech_output_failed", "speech_output_cancelled", "session_started",
             "session_stopping", "session_stopped", "session_failed", "turn_queued",
             "turn_started", "turn_completed", "turn_simulated", "turn_cancelled",
-            "turn_failed",
+            "turn_failed", "turn_phase",
         ):
             self.bus.subscribe(event_type, self._record_event)
 
@@ -94,6 +99,10 @@ class Session:
             self._messages.clear()
             self._events.clear()
             self._results.clear()
+            self._trace = RequestTrace()
+            self._run_id = uuid.uuid4().hex
+            self._event_seq = 0
+            self._audio_level = 0.0
             self._cancelled_scopes.clear()
             for history in self._histories.values():
                 history.clear()
@@ -168,13 +177,21 @@ class Session:
                   "speaker": speaker, "outcome": outcome, "scope": request.scope,
                   "source": request.source, **({"error": error} if error else {})}
         self._results[request.request_id] = result
+        self._trace.finish(request.request_id, outcome, speaker=speaker, error=error)
         event_type = "turn_completed" if outcome == "complete" else f"turn_{outcome}"
         self._publish(event_type, result)
 
     def snapshot(self):
         with self._lock:
             state = self.state_machine.snapshot()
+            requests = self._trace.snapshot()
+            current = next((r for r in requests if self._current is not None
+                            and r["request_id"] == self._current.request_id), None)
             return {
+                "run_id": self._run_id, "mode": self._config.get("mode", "live"),
+                "roles": [{"name": name} for name in self._roles],
+                "requests": requests, "current_request": current,
+                "audio_level": self._audio_level, "event_seq": self._event_seq,
                 "running": self._thread is not None and self._thread.is_alive(),
                 "stopping": self._stopping,
                 "phase": self._phase,
@@ -207,6 +224,7 @@ class Session:
             if len(self._pending) >= 100:
                 raise ProviderError("等待队列已达到 100 条，请等待当前任务完成。")
             self._pending.append(request)
+            self._trace.queued(request)
             self._publish("turn_queued", {
                 "request_id": request.request_id, "kind": kind, "speaker": speaker,
                 "scope": scope, "source": source,
@@ -308,6 +326,7 @@ class Session:
             mouth_generation = self._turn_counter
             self._last_error = ""
             self._phase = "generating" if request.kind == "chat" else "synthesizing"
+            self._trace.update(request.request_id, self._phase, speaker=speaker)
             output = self.arbiter.request_start(speaker=speaker, source=request.kind, policy=POLICY_DROP)
             self._output_id = output.output_id if output else None
             if output:
@@ -327,14 +346,15 @@ class Session:
             with self._lock:
                 if not self._is_current(request, generation, cancel, stop_event):
                     return False
+                value = float(level)
+                if not math.isfinite(value):
+                    value = 0.0
+                self._audio_level = max(0.0, min(1.0, value))
                 avatar = self._avatars.get(speaker)
                 if avatar is None:
                     return True
                 try:
-                    value = float(level)
-                    if not math.isfinite(value):
-                        value = 0.0
-                    avatar.set_mouth_level(max(0.0, min(1.0, value)), generation=mouth_generation)
+                    avatar.set_mouth_level(self._audio_level, generation=mouth_generation)
                     return True
                 except Exception as exc:
                     avatar_error.append(exc)
@@ -353,6 +373,9 @@ class Session:
                 self._check_current(request, generation, cancel, stop_event)
                 if not isinstance(text, str) or not text.strip():
                     raise ProviderError("聊天服务没有返回可朗读的文字。")
+            with self._lock:
+                self._check_current(request, generation, cancel, stop_event)
+                self._trace.update(request.request_id, "synthesizing", text=text)
             self._set_phase("synthesizing", request, generation, cancel, stop_event)
             clip = self._synth.synthesize(text, role.get("voice", ""), cancel)
             self._check_current(request, generation, cancel, stop_event)
@@ -407,6 +430,7 @@ class Session:
                     self.arbiter.fail_current(error or "输出失败。", output_id=self._output_id)
                 self._last_error = error or "处理请求失败，请检查配置或服务状态。"
             self._last_outcome = outcome
+            self._audio_level = 0.0
             self._zero_mouth(speaker, mouth_generation)
             self._current = self._cancel = self._output_id = self._speaker = None
             self._phase = "stopping" if self._stopping else "ready"
@@ -430,10 +454,16 @@ class Session:
         with self._lock:
             self._check_current(request, generation, cancel, stop_event)
             self._phase = phase
+            self._trace.update(request.request_id, phase)
+            self._publish("turn_phase", {"request_id": request.request_id,
+                                        "speaker": self._speaker, "phase": phase})
 
     def _cancel_current(self, reason):
         if self._cancel is not None:
             self._cancel.set()
+        if self._current is not None:
+            self._trace.update(self._current.request_id, "cancelling", text="")
+        self._audio_level = 0.0
         if self._output_id:
             self.arbiter.cancel_if_current(self._output_id, reason=reason)
         if self._speaker is not None:
@@ -466,7 +496,9 @@ class Session:
 
     def _record_event(self, event):
         with self._lock:
+            self._event_seq += 1
             self._events.append({
+                "seq": self._event_seq, "run_id": self._run_id,
                 "event_type": event.event_type, "data": deepcopy(event.data),
                 "source": event.source, "timestamp": event.timestamp,
             })

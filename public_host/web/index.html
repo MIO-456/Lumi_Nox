@@ -1,49 +1,72 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Lumi_Nox · 直播中控</title><link rel="stylesheet" href="/style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Lumi_Nox · 虚拟直播间</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/room.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
-  <header class="top"><div><span class="eyebrow">LUMI_NOX / LIVE CONSOLE</span><h1>排好节目，让角色登场。</h1><p>连接自己的角色与服务，完成开场、聊天、游戏和收尾。</p></div><span id="status-pill" class="pill">尚未开始</span></header>
+  <header class="topbar">
+    <div class="brand-lockup">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i></span>
+      <div><span class="eyebrow">LUMI_NOX / LOCAL ROOM</span><h1>虚拟直播间</h1></div>
+    </div>
+    <div class="topbar-status">
+      <span id="connection-label" class="connection-dot"><b></b>控制台在线</span>
+      <span id="status-pill" class="status-pill">示例舞台</span>
+    </div>
+  </header>
+
   <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
-  <main>
-    <aside class="panel setup">
-      <div class="panel-title"><div><span class="eyebrow">01 / SETUP</span><h2>连接与角色</h2></div><span id="saved" class="muted">本机配置</span></div>
-      <fieldset id="configuration"><legend class="sr-only">会话配置</legend>
-        <label class="field">运行模式<select id="mode"><option value="live">真实服务 · 模型与语音</option><option value="demo">离线演示 · 无声，不连接外部服务</option></select></label>
-        <p class="hint">第一次使用可先选离线演示，熟悉开始、输入和停止。</p>
-        <div class="tabs" role="tablist" aria-label="配置类别"><button type="button" id="service-tab" role="tab" aria-selected="true" aria-controls="service-panel">服务</button><button type="button" id="roles-tab" role="tab" aria-selected="false" aria-controls="roles-panel">角色与皮套</button></div>
-        <div id="service-panel" role="tabpanel" aria-labelledby="service-tab">
-          <div id="services"></div>
-          <h3>音频输出</h3><label class="field">播放设备<select id="device"><option value="">系统默认设备</option></select></label><button id="devices" type="button" class="text-button">刷新设备列表</button>
-          <p class="hint">真实语音需要安装 requirements-host.txt。虚拟声卡可在这里选择，再交给 OBS 采集。</p>
-        </div>
-        <div id="roles-panel" role="tabpanel" aria-labelledby="roles-tab" hidden><div id="roles"></div><p class="hint">VTS 为可选项。Hiyori 请从官方来源自行安装；宿主不附带模型。先验证一个角色，再启用第二个。</p></div>
-      </fieldset>
-      <div class="save-bar"><button id="save" class="primary">保存本机配置</button><span class="hint">Key 仅保存在本机，保存后不回显。</span></div>
-    </aside>
-    <section class="workspace">
-      <section class="panel program">
-        <div class="panel-title"><div><span class="eyebrow">02 / PROGRAM</span><h2>节目单与运行</h2></div><label class="run-mode">运行方式<select id="run-mode"><option value="program">按节目单运行</option><option value="manual">手动对话</option></select></label></div>
-        <fieldset id="program-configuration"><legend class="sr-only">节目单配置</legend><div id="program-editor"><div id="stages" class="stages"></div><div class="program-edit-actions"><button id="add-stage" type="button">＋ 添加环节</button><label class="inline-field">自动聊天间隔 <input id="auto-chat-interval" type="number" min="1" max="600" step="1"> 秒</label></div><details class="stage-prompt"><summary>游戏网页设置</summary><label class="inline-field">本机端口 <input id="gomoku-port" type="number" min="1024" max="65535" step="1"></label></details><p class="hint">时间以秒计。五子棋需要启用两位不同的角色；游戏按真实规则自动落子。修改后请保存本机配置。</p></div></fieldset>
-        <div class="program-now" aria-live="polite"><div><span id="program-phase" class="muted">准备开始</span><strong id="program-stage">保存配置，检查连接后开始</strong></div><span id="program-countdown">—</span></div>
-        <p id="program-error" class="program-error" role="alert" hidden></p>
-        <div class="program-actions"><button id="start" class="primary">开始节目</button><button id="next" disabled>下一环节</button><button id="end" disabled>进入收尾</button><button id="stop" disabled>立即停止</button><a id="activity-link" class="activity-link" target="_blank" rel="noopener" hidden>查看游戏画面 ↗</a></div>
-        <p id="program-hint" class="hint">下一环节会先清理当前活动；进入收尾会执行结束环节；立即停止会取消输出并清理资源。</p>
-      </section>
-      <div class="panel session">
-        <div class="panel-title"><div><span class="eyebrow">03 / SESSION</span><h2>对话现场</h2></div><span class="muted">手工输入与角色发言</span></div>
-        <div class="session-meta"><span id="phase">保存配置后即可开始</span><span id="queue">等待输入</span></div>
-        <div id="demo-note" class="demo-note" hidden>离线演示：使用示例回复，不调用模型、不播放声音、不连接 VTS。五子棋仍按真实规则运行。</div>
-        <div id="messages" class="messages" aria-live="polite"><div class="empty"><span class="empty-icon">◌</span><h3>从一句「你好」开始</h3><p>角色会依次回应，也可以指定其中一位。<br>只有播放结束，才交给下一个角色。</p></div></div>
-        <form id="composer"><label class="sr-only" for="input">输入消息或要朗读的文字</label><textarea id="input" rows="3" maxlength="12000" placeholder="写一句话给角色，或填写要直接朗读的内容…" disabled></textarea><div class="composer-bottom"><label>回应角色 <select id="speaker" aria-label="回应角色"><option value="">自动轮换</option></select></label><div><button id="interrupt" type="button" class="text-button" disabled>打断当前</button><button id="say" type="button" disabled>直接朗读</button><button id="send" type="submit" class="primary" disabled>发送消息 ↗</button></div></div></form>
+
+  <main class="console">
+    <section id="room-stage" class="room-stage" aria-label="直播舞台"></section>
+
+    <section class="control-bar" aria-label="节目控制">
+      <div class="control-context"><span class="eyebrow">ON AIR CONTROL</span><strong id="program-stage">示例舞台 · 双角色待机</strong><span id="program-phase" class="muted">尚未开始</span></div>
+      <div class="control-actions">
+        <button id="demo-chat" class="primary"><span aria-hidden="true">▶</span> 体验聊天</button>
+        <button id="demo-program" class="primary warm"><span aria-hidden="true">◆</span> 体验完整节目</button>
+        <label class="run-mode">运行方式<select id="run-mode" aria-label="运行方式"><option value="manual">手动对话</option><option value="program">按节目单运行</option></select></label>
+        <button id="start" class="secondary">开始当前模式</button><button id="next" class="secondary" disabled>下一环节</button><button id="end" class="secondary" disabled>进入收尾</button><button id="stop" class="danger" disabled>停止</button>
       </div>
-      <div class="panel checks"><div class="panel-title"><div><span class="eyebrow">04 / CHECK</span><h2>连接检查</h2></div><span class="muted">会产生一次服务请求</span></div><div class="check-actions"><button id="probe">测试聊天连接</button><select id="preview-role" aria-label="试听角色"></select><button id="preview">试听声音</button></div><p id="check-result" class="hint">先保存配置。检查与试听在会话停止时使用，避免打断正在说话的角色。</p><div id="model-results"></div></div>
-      <details class="panel events"><summary>运行事件 <span class="muted">查看完成、取消和失败</span></summary><pre id="events"></pre></details>
+      <div id="demo-note" class="demo-note">示例舞台 · 无声演示，不连接模型、声卡或 VTS</div>
+      <p id="dependency-note" class="demo-note" hidden>完整节目需安装 aiohttp：python -m pip install aiohttp。也可以直接体验聊天。</p>
+      <p id="program-error" class="program-error" role="alert" hidden></p>
     </section>
+
+    <section class="live-grid">
+      <section class="panel audience-panel" aria-labelledby="audience-title">
+        <div class="panel-heading"><div><span class="eyebrow">AUDIENCE</span><h2 id="audience-title">观众席</h2></div><span id="queue" class="muted">等待输入</span></div>
+        <div id="request-feed" class="request-feed" aria-live="polite"><div class="feed-empty">舞台准备好后，观众消息会出现在这里。</div></div>
+        <form id="composer" class="composer"><label class="sr-only" for="input">输入观众消息</label><textarea id="input" rows="2" maxlength="12000" placeholder="写一句话给角色…" disabled></textarea><div class="composer-row"><label class="speaker-picker">回应角色<select id="speaker" aria-label="回应角色"><option value="">自动轮换</option></select></label><div class="composer-actions"><button id="interrupt" type="button" class="quiet" disabled>打断</button><button id="say" type="button" class="quiet" disabled>直接朗读</button><button id="send" type="submit" class="primary" disabled>发送 <span aria-hidden="true">↗</span></button></div></div></form>
+      </section>
+
+      <section class="panel program-panel" aria-labelledby="program-title">
+        <div class="panel-heading"><div><span class="eyebrow">PROGRAM</span><h2 id="program-title">节目状态</h2></div><a id="activity-link" class="activity-link" target="_blank" rel="noopener" hidden>打开棋盘 ↗</a></div>
+        <div class="program-now"><div><span id="stage-label" class="muted">当前环节</span><strong id="stage-name">示例舞台</strong></div><span id="program-countdown" class="countdown">—</span></div>
+        <div class="program-steps" id="program-steps" aria-label="节目进度"></div>
+        <div class="signal-row"><span class="signal-label">输出电平</span><span class="audio-meter"><i id="audio-meter-fill"></i></span><span id="audio-level" class="signal-value">静音</span></div>
+        <p id="program-hint" class="hint">节目单会在设置中编辑。手动对话不推进节目环节。</p>
+      </section>
+    </section>
+
+    <section class="settings-shell"><details id="settings-details"><summary><span class="summary-icon" aria-hidden="true">⚙</span><span><b>设置与连接</b><small>服务 · 角色 · VTS · 节目 · 设备</small></span><span id="saved" class="summary-state">本机配置</span></summary><div class="settings-body">
+      <div class="settings-topline"><label class="mode-picker">运行环境<select id="mode"><option value="live">真实服务 · 模型与语音</option><option value="demo">离线演示 · 无声</option></select></label><div class="save-bar"><button id="save" class="primary">保存本机配置</button><span>Key 仅保存在本机，保存后不回显。</span></div></div>
+      <div class="settings-tabs" role="tablist" aria-label="设置类别"><button type="button" id="service-tab" role="tab" aria-selected="true" aria-controls="service-panel">服务与设备</button><button type="button" id="roles-tab" role="tab" aria-selected="false" aria-controls="roles-panel">角色与 VTS</button><button type="button" id="program-tab" role="tab" aria-selected="false" aria-controls="program-panel-settings">节目编辑</button></div>
+      <fieldset id="configuration"><legend class="sr-only">直播间配置</legend>
+        <div id="service-panel" role="tabpanel" aria-labelledby="service-tab"><div id="services" class="service-grid"></div><div class="device-block"><div class="subheading"><h3>音频输出</h3><span class="muted">真实语音可选</span></div><label class="field">播放设备<select id="device"><option value="">系统默认设备</option></select></label><button id="devices" type="button" class="quiet">刷新设备列表</button><p class="hint">虚拟声卡可以交给 OBS 采集。示例舞台始终无声。</p></div><div class="check-block"><div class="subheading"><h3>连通性检查</h3><span class="muted">停止会话后使用</span></div><div class="check-actions"><button id="probe">测试聊天连接</button><select id="preview-role" aria-label="试听角色"></select><button id="preview">试听声音</button></div><p id="check-result" class="hint">保存真实服务配置后可进行检查。</p><div id="model-results"></div></div></div>
+        <div id="roles-panel" role="tabpanel" aria-labelledby="roles-tab" hidden><div id="roles" class="roles-grid"></div><p class="hint">角色名、系统提示、音色与 VTS 连接只保存在本机。宿主不附带模型或皮套资产。</p></div>
+        <div id="program-panel-settings" role="tabpanel" aria-labelledby="program-tab" hidden><div id="program-configuration"><div id="program-editor"><div id="stages" class="stages"></div><div class="program-edit-actions"><button id="add-stage" type="button">＋ 添加环节</button><label class="inline-field">自动聊天间隔 <input id="auto-chat-interval" type="number" min="1" max="600" step="1"> 秒</label></div><details class="advanced-fields"><summary>棋盘网页设置</summary><label class="inline-field">本机端口 <input id="gomoku-port" type="number" min="1024" max="65535" step="1"></label><p class="hint">完整节目需要两个启用角色和 aiohttp。无依赖时体验聊天仍可用。</p></details></div></div></div>
+      </fieldset>
+    </div></details></section>
+
+    <section class="debug-shell"><details id="debug-details"><summary><span class="summary-icon" aria-hidden="true">⌁</span><span><b>调试台</b><small>请求时间线 · 事件筛选 · 元数据导出</small></span><span id="debug-run" class="summary-state">未运行</span></summary><div class="debug-body"><div class="debug-toolbar"><label>事件来源<select id="event-filter"><option value="all">全部事件</option><option value="session">会话</option><option value="program">节目</option></select></label><label>请求<select id="request-filter"><option value="all">全部请求</option></select></label><label class="debug-check"><input id="failed-filter" type="checkbox"> 仅失败</label><button id="export-debug" type="button" class="quiet">导出元数据 JSON</button></div><div class="timeline-wrap"><div class="timeline-title"><span>请求时间线</span><span id="timeline-count" class="muted">0 条</span></div><div id="request-timeline" class="request-timeline"><span class="muted">暂无请求</span></div></div><div class="event-wrap"><div class="timeline-title"><span>运行事件</span><span id="event-truncation" class="muted"></span></div><pre id="events" class="events-log">暂无事件</pre></div><p class="privacy-note">导出仅包含运行、请求阶段、耗时、结果和错误代码等白名单元数据，不包含输入、回复原文、事件 data、配置、提示词或 Key。</p></div></details></section>
   </main>
-  <footer>通用能力公开，角色由你定义。<span>仅本机访问 · 推流由你控制</span></footer>
+  <footer><span>本机演播室 · 由你控制推流</span><span id="run-id-label">RUN —</span></footer>
 </body>
 </html>

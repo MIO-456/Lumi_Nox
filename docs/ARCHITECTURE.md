@@ -20,9 +20,9 @@ Run `python main.py` and read it alongside this document; it is the smallest
 complete picture of how the parts connect.
 
 Run `python -m public_host` for an interactive local UI at
-`http://127.0.0.1:8765`. Select offline demo plus manual conversation for a
-standard-library-only session; the UI defaults to programme mode, whose Gomoku
-activity requires aiohttp. Configure your own chat and speech services for actual audio.
+`http://127.0.0.1:8765`. The local room presents generic characters, subtitles,
+request diagnostics and an in-stage Gomoku board. The chat demo uses only the standard library; the full programme demo requires aiohttp. Both use temporary configuration.
+Configure your own chat and speech services for actual audio.
 See the [public host guide](PUBLIC_HOST.md), [programme guide](PUBLIC_DIRECTOR.md)
 and [VTS example](VTS_EXAMPLE.md).
 
