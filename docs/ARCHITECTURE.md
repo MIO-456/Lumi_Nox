@@ -1,5 +1,9 @@
 # Architecture
 
+> **Read when**: changing coordination code (`core/`), turn-taking, the realtime voice path, or memory write-back.
+> **Skip when**: you only need to run the demo — see [GETTING_STARTED](GETTING_STARTED.md).
+> **Review**: when a subsystem's responsibility or the end-to-end data flow changes.
+
 Lumi_Nox runs two AI characters as co-hosts of a single livestream. This document
 describes how the pieces in this repository fit together to let two AIs share one
 stage in real time.

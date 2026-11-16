@@ -1,5 +1,9 @@
 # 快速开始：运行自己的示例角色
 
+> **何时读**：第一次把仓库跑起来，或需要对照演示的预期输出与排错。
+> **何时不用读**：已经能跑通 `main.py` —— 要改代码看 [DEVELOPMENT](DEVELOPMENT.md)，要写测试看 [TESTING](TESTING.md)。
+> **复核**：入口命令、演示输出或 Python 基线版本变化时。
+
 [返回首页](../README.md) · [English README](../README.en.md) · [如何贡献](../CONTRIBUTING.md) · [可以一起做什么](CONTRIBUTION_TASKS.md)
 
 这份指南带你下载公开代码，先运行通用公开宿主的网页演示，再了解原有终端示例和代码入口。模型与真实声音的配置步骤见[公开宿主指南](PUBLIC_HOST.md)。

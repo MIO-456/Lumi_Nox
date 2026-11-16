@@ -10,6 +10,7 @@ permissions:
 jobs:
   public-core:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -20,7 +21,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Compile public source
-        run: python -m compileall -q .
-      - name: Run zero-dependency tests
-        run: python -m unittest discover -s tests -v
+      - name: Verify source, docs and tests (Ubuntu)
+        if: runner.os == 'Linux'
+        run: bash ./init.sh
+      - name: Verify source, docs and tests (Windows PowerShell)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./init.ps1

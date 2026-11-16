@@ -1,5 +1,9 @@
 # VTube Studio / Hiyori example
 
+> **Read when**: connecting a user-installed VTS model to the public host.
+> **Skip when**: using text/audio without an avatar.
+> **Review**: when VTS APIs, sample-model terms or the host adapter change.
+
 The public host can drive a selected model's mouth from the audio it actually
 plays. VTS is optional and starts disabled. No model, private motion, voice,
 existing streamer token, or character persona is included.

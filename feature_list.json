@@ -1,0 +1,63 @@
+{
+  "purpose": "可选里程碑索引；任务范围、认领、讨论与验证以对应 Issue / PR 和实际提交为准。不同贡献者可并行工作，不要求每次会话更新此文件。",
+  "features": [
+    {
+      "id": "verify-01",
+      "name": "离线基线可重复",
+      "description": "从干净检出开始，用标准库跑通演示、编译与自动检查；允许测试自建的本机 loopback 假服务，不访问真实服务、声卡、VTS 或游戏。",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "历史证据：PR #1 初稿（723f8bc，2026-11-14）记录 python main.py -> '=== demo complete ==='; compileall -> exit 0; unittest -> 'Ran 88 tests ... OK'。当前提交的验证见其 PR / Actions，不以该数量作为固定要求。",
+      "verification": "./init.ps1 (Windows) 或 bash ./init.sh (macOS/Linux)"
+    },
+    {
+      "id": "doc-01",
+      "name": "分层文档体系",
+      "description": "入口文件简要说明约束与文档路由，专题按主题组织；脚本检查链接与索引，篇幅和阅读条件作为提示。",
+      "dependencies": ["verify-01"],
+      "status": "done",
+      "evidence": "PR #1 作者提供 AGENTS、文档索引、开发/测试/约定/术语指南及统一验证入口。初稿历史结果为 'docs ok: 24 files, links resolve, budgets hold.'；当前规则调整与验证在该 PR 继续记录。",
+      "verification": "python scripts/check_docs.py"
+    },
+    {
+      "id": "doc-02",
+      "name": "文档定期复核",
+      "description": "维护者可在发布或定期维护时修正失效条目、合并重复主题。记录放在对应 Issue / PR；影响发布进度时再更新 progress.md。",
+      "optional": true,
+      "dependencies": ["doc-01"],
+      "status": "not-started",
+      "evidence": "",
+      "verification": "文档检查通过，并人工核对描述与当前入口一致；记录本次实际检查范围"
+    },
+    {
+      "id": "contrib-01",
+      "name": "交互式终端演示",
+      "description": "网页宿主已有手动输入。若有无浏览器运行的需求，可另行讨论为 main.py 增加交互模式；保持原有默认演示、零依赖与无声，不是必做前置任务。",
+      "optional": true,
+      "dependencies": ["verify-01"],
+      "status": "not-started",
+      "evidence": "",
+      "verification": "按确认后的交互范围验证点名、轮换与退出，保留原有演示和相关检查",
+      "scope": "docs/CONTRIBUTION_TASKS.md 中的『可选方向：交互式终端演示』"
+    },
+    {
+      "id": "ci-01",
+      "name": "Windows CI 并行任务",
+      "description": "GitHub Actions 已配置 Ubuntu 和 Windows，执行统一验证脚本以检查路径、编码等平台差异。",
+      "dependencies": ["verify-01"],
+      "status": "done",
+      "evidence": "公开宿主发布提交 68c5a36 已增加双平台矩阵；本 PR 进一步让两个 job 复用各平台 init 脚本。实际结果查看对应提交的 Actions。",
+      "verification": "对应提交的两个平台 job 均通过统一检查；不把配置存在当成运行通过",
+      "scope": "只改 .github/workflows/ci.yml，不做整套直播的跨平台承诺"
+    },
+    {
+      "id": "host-01",
+      "name": "通用公开对话宿主",
+      "description": "本机配置、1–2个自定义角色、兼容聊天/TTS、播放与取消、可选 VTS 嘴型已公开；游戏、绘画、演唱的活动生命周期尚未统一接通。",
+      "dependencies": ["verify-01"],
+      "status": "done",
+      "evidence": "发布提交 68c5a36；使用与验证边界见 docs/PUBLIC_HOST.md。此里程碑不声称真实云服务、声卡或 Hiyori 已实机验收。",
+      "verification": "按公开宿主指南分别记录自动检查、配置和实机验证范围"
+    }
+  ]
+}
