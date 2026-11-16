@@ -192,9 +192,10 @@ class InitVerificationTests(unittest.TestCase):
         result = self.run_ps(
             "$env:PYTHONUTF8 = '0'\n"
             "$env:PYTHONIOENCODING = 'ascii'\n"
+            "$LASTEXITCODE = 91\n"  # A caller's local value must not hide the native result.
             f"& {ps_string(self.root / 'init.ps1')} -Python {ps_string(interpreter)}\n"
             "$checkSucceeded = $?\n"
-            "$checkExitCode = $LASTEXITCODE\n"
+            "$checkExitCode = $global:LASTEXITCODE\n"
             "if (-not $checkSucceeded -or $checkExitCode -ne 0) { exit 21 }\n"
             "if ($env:PYTHONUTF8 -ne '0' -or $env:PYTHONIOENCODING -ne 'ascii') { exit 22 }\n"
             "Write-Output 'PARENT_UTF8_PRESERVED'\n"

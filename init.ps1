@@ -43,10 +43,13 @@ try {
         Write-Host "== $($step.Name) =="
         # Do not redirect native stderr into PowerShell's error stream: tests
         # intentionally write warnings there. Check invocation and exit status.
+        # On Unix, PowerShell may open a non-executable file via xdg-open.
+        # That is not a native Python run and leaves LASTEXITCODE unchanged.
+        $global:LASTEXITCODE = $null
         & $Python @($step.Args)
         $invoked = $?
-        $nativeExit = $LASTEXITCODE
-        if (-not $invoked -or $nativeExit -ne 0) {
+        $nativeExit = $global:LASTEXITCODE
+        if (-not $invoked -or $nativeExit -isnot [int] -or $nativeExit -ne 0) {
             if ($nativeExit -is [int] -and $nativeExit -ne 0) { $exitCode = $nativeExit }
             throw "$($step.Name) failed (exit $nativeExit)"
         }
