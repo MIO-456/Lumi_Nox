@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Standard verification entry point (macOS / Linux / Git Bash).
 #
-#   ./init.sh            # compile + docs + tests
-#   PYTHON=py ./init.sh  # force a specific interpreter
+#   bash ./init.sh            # compile + docs + tests
+#   PYTHON=py bash ./init.sh  # force a specific interpreter
 #
-# Every check here is offline: no network, no audio device, no game, no model.
+# No cloud services, audio device, game, or model. Tests may use loopback.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -19,19 +19,28 @@ else
   exit 127
 fi
 
-echo "== python: $($PY --version 2>&1) =="
+# Git Bash also accepts a Windows-style interpreter path via PYTHON.
+if command -v cygpath >/dev/null 2>&1; then
+  case "$PY" in
+    [a-zA-Z]:[\\/]*) PY="$(cygpath -u "$PY")" ;;
+  esac
+fi
+if ! command -v "$PY" >/dev/null 2>&1; then
+  echo "init: Python executable not found: $PY" >&2
+  exit 127
+fi
+
+# Set encoding only for each child; leave the calling shell's values intact.
+echo "== python =="
+PYTHONUTF8=1 PYTHONIOENCODING=utf-8 "$PY" --version
 echo "== compile =="
-"$PY" -m compileall -q .
+PYTHONUTF8=1 PYTHONIOENCODING=utf-8 "$PY" -m compileall -q .
 
 echo "== docs =="
-"$PY" scripts/check_docs.py
+PYTHONUTF8=1 PYTHONIOENCODING=utf-8 "$PY" scripts/check_docs.py
 
 echo "== tests =="
-"$PY" -m unittest discover -s tests
+PYTHONUTF8=1 PYTHONIOENCODING=utf-8 "$PY" -m unittest discover -s tests
 
 echo "== all checks passed =="
-echo ""
-echo "Next steps:"
-echo "  1. Read feature_list.json and pick ONE not-started feature"
-echo "  2. Read the doc routed by AGENTS.md section 4"
-echo "  3. Re-run this script before claiming done"
+echo "Continue the agreed task; use AGENTS.md and docs/README.md for relevant guidance."

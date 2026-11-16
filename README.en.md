@@ -21,10 +21,11 @@ real-time voice conversation with *each other*, banter, react to viewer chat,
 remember their regulars across streams, and play games together — in the spirit
 of the Neuro × Evil dynamic.
 
-This repository publishes selected engine modules and a small runnable demo.
+This repository publishes selected engine modules and a runnable public host.
 It is not the complete current livestream system: the public snapshot and the
-private production runtime can differ. The demo below does not reproduce the
-full show or include the real characters' personas and voices.
+private production runtime can differ. The public host connects your own models,
+voices and one or two characters through a local web UI, with optional VTube Studio
+mouth movement. It does not include the real characters' personas or assets.
 
 ## Try it now (standard library only)
 
@@ -33,11 +34,28 @@ Python **3.12** is the verified baseline used by CI. With Python and Git install
 ```bash
 git clone https://github.com/MIO-456/Lumi_Nox.git
 cd Lumi_Nox
-python main.py
+python -m public_host
 ```
 
-On macOS/Linux, use `python3` if that is your Python 3.12 command. No `pip install`,
-API keys, audio hardware or models are required for this demo. `main.py` is a runnable taste of
+Open **http://127.0.0.1:8765**, select the offline demo mode, save the local
+configuration, start a session and enter a message. The initial selection is real
+services; switch it to demo explicitly. Demo uses placeholder replies and the real
+scheduling/cancellation flow, but **makes no model calls, plays no audio and does
+not connect to VTS**. Its results are labelled simulated. No `pip install`, keys,
+audio hardware or models are required. Stop the session and press Ctrl+C in the
+terminal when finished. On macOS/Linux, use `python3` if needed.
+
+For real audio, install `python -m pip install -r requirements-host.txt`, then
+configure your own service URLs, models, keys and voice IDs. The adapters support
+text replies from `/chat/completions` and complete 16-bit PCM WAV responses from
+`/audio/speech`; a service advertising API compatibility may still require another
+adapter. See the [public host guide (中文)](docs/PUBLIC_HOST.md) and optional
+[VTS/Hiyori setup](docs/VTS_EXAMPLE.md). Real cloud services, audio devices
+and Hiyori still need verification in the user's environment.
+
+### The original terminal demo
+
+`python main.py` remains a standard-library-only, runnable taste of
 the **real** coordination core: it drives two example characters through the real
 scheduler and speech arbiter, so you can watch the turn-taking, @-mention routing
 and one-voice-at-a-time logic run in your terminal in a few seconds. The LLM and
@@ -54,6 +72,10 @@ These are source modules to study and integrate. Unlike the standard-library
 demo, voice and game integrations need their own services, dependencies and setup;
 their presence here does not make the full livestream runnable from this repo.
 
+- **Public host** (`public_host/`) — local configuration and session UI, compatible
+  chat/TTS adapters, one- or two-character turn-taking, actual playback completion,
+  cancellation and optional VTS mouth movement. It does not automatically wire in
+  the separate game, ASR, memory or realtime voice modules listed below.
 - **Realtime dual-session engine** (`audio/realtime_chat.py`, `audio/realtime_chat_protocol.py`)
   — each character runs on its own end-to-end speech-to-speech session (doubao
   SC2.0 over websocket); audio is attributed and routed per speaker, so two
@@ -101,6 +123,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 
 ```
 main.py                  # zero-setup co-hosting demo
+public_host/             # local UI, sessions, service adapters, audio and VTS
 core/                    # events, state, turn selection and speech arbitration
 dialogue/                # conversations, model calls, viewer names and web search
 audio/                   # ASR, TTS, realtime voice and output processing
@@ -110,7 +133,7 @@ examples/                # offline prototype data and disposable synthetic audio
 memory/                  # SQLite memory, extraction, decay and deterministic facts
 games/                   # one directory per game; shared word-game worker
 docs/                    # architecture and game engineering notes
-tests/                   # zero-dependency public-core checks
+tests/                   # public core/host checks with fake external services
 ```
 
 Existing callers should update imports using the [layout migration guide](docs/PACKAGE_LAYOUT.md).
@@ -126,8 +149,10 @@ data contracts and fixtures; the production hosts and services are not included.
 
 ## Getting started
 
-Start with the standard-library demo above and the checks below. For a specific
-voice or game integration, read its code and setup notes before installing the
+Start with the public host demo above and the checks below. Its real-service mode
+uses [requirements-host.txt](requirements-host.txt) and a separate local configuration
+under `.local-host/`; it does not automatically load `.env` or private production
+settings. For a separate voice or game integration, read its setup notes before installing the
 dependencies in [requirements.txt](requirements.txt) or configuring
 [.env.example](.env.example). The dependency list includes Windows audio support;
 installing it and adding keys is not a complete cross-platform livestream setup.
@@ -136,29 +161,35 @@ Keep real credentials local.
 ### What you need to bring
 
 This repo is the **open-core** of a livestream system — the
-architecture and engineering are here to read and build on, not a turnkey product.
-Running the full thing needs the pieces below: some are yours to bring, some are
-intentionally kept closed.
+architecture and engineering are here to read and build on. The public host provides
+the basic chat-to-speech wiring; reproducing the complete production show requires
+additional integrations and assets.
 
-- **API keys** for the model and voice integrations; the `main.py` demo needs
-  none. The published fast brain configures doubao ARK and DashScope clients.
+- **Service configuration** for real chat and speech: enter your own base URLs,
+  models and any required API keys in the public host UI. Both offline demos need
+  none. Separately, the published fast brain configures doubao ARK and DashScope clients.
   Other compatible endpoints need adaptation and verification. The published
   realtime voice uses **doubao SC2.0**, and streaming TTS/ASR use **DashScope**
   (CosyVoice / fun-asr). See `.env.example` for the relevant credentials.
-- **Your own voice IDs** — the private cloned-voice registry is not published.
+- **Your own voice IDs** — set a supported voice per character in the public host;
+  the private cloned-voice registry is not published. For older modules,
   `settings/voice_registry.py` resolves the placeholder characters from
   `CHARACTER_A_VOICE_ID` / `CHARACTER_B_VOICE_ID` and optional matching
   `*_VOICE_MODEL` variables, otherwise TTS falls back to a system voice.
-- **A Live2D model** — the avatar / motion / expression layer is tied to specific
-  character models and is **not** included; bring your own and wire it in.
+- **An optional Live2D model** — a generic VTS authentication and mouth adapter
+  is included. Bring a model you may use and load it in VTS; the
+  [Hiyori guide](docs/VTS_EXAMPLE.md) links to official sources and separate license
+  terms. Model files and private motion/expression assets are not bundled.
 - **The game** — the game bridge talks to a commercial game over TCP; you supply
   the game itself. The Terraria-side LumiBridge mod source is included and built
   by the bot; see [its setup guide](games/terraria/mod/README.md).
-- **Personas** — `settings/voice_config.py` ships placeholder example characters; the real
+- **Personas** — the public host supplies generic example roles you can edit;
+  `settings/voice_config.py` also ships placeholders for older modules. The real
   Lumi / Nox persona prompts and worldview are intentionally closed.
 
-Vision, drawing, the Live2D motion/expression layer, voiceprints, and the live
-director/control console remain in the private production system.
+Vision and drawing runtimes, private Live2D motion/expression assets, voiceprints,
+and the full production director/control console remain private. The public host's
+launcher, configuration UI and basic orchestration are included.
 
 ## Verification
 
@@ -170,9 +201,11 @@ python -m unittest discover -s tests -v
 python -m compileall -q .
 ```
 
-On every push and pull request, GitHub Actions runs compilation and the unittest
-suite on Ubuntu with Python 3.12. The suite also runs `main.py` through
-`test_zero_setup_demo`; this verifies the public smoke path, not a full live show.
+On every push and pull request, GitHub Actions is configured to run compilation
+and unittest on Ubuntu and Windows with Python 3.12. The suite also runs `main.py`
+through `test_zero_setup_demo`; host HTTP tests need loopback networking. These
+checks use fake external services and verify the public core/host, not real cloud
+services, audio devices, Hiyori or a full live show.
 
 ## Help build the next stream segment
 

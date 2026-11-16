@@ -1,47 +1,68 @@
 # Standard verification entry point (Windows PowerShell 5.1+).
-#
-#   ./init.ps1              # compile + docs + tests
-#   ./init.ps1 -Python py   # force a specific interpreter
-#
-# Every check here is offline: no network, no audio device, no game, no model.
-# Native commands are judged by $LASTEXITCODE, not by stderr text: the test
-# suite logs warnings to stderr on purpose and that is not a failure.
+#   ./init.ps1
+#   ./init.ps1 -Python 'C:\Path With Spaces\python.exe'
+# Checks use no cloud services, audio device, or game. Tests may use loopback.
 [CmdletBinding()]
 param(
     [string]$Python = $env:PYTHON
 )
 
-Set-Location -LiteralPath $PSScriptRoot
+$ErrorActionPreference = 'Stop'
+$exitCode = 1
+$pushedLocation = $false
+$previousUtf8 = [Environment]::GetEnvironmentVariable('PYTHONUTF8', 'Process')
+$previousIoEncoding = [Environment]::GetEnvironmentVariable('PYTHONIOENCODING', 'Process')
+$previousConsoleEncoding = [Console]::OutputEncoding
 
-if (-not $Python) {
-    foreach ($candidate in @('python', 'py', 'python3')) {
-        if (Get-Command $candidate -ErrorAction SilentlyContinue) { $Python = $candidate; break }
+try {
+    Push-Location -LiteralPath $PSScriptRoot
+    $pushedLocation = $true
+    $env:PYTHONUTF8 = '1'
+    $env:PYTHONIOENCODING = 'utf-8'
+    [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
+    if (-not $Python) {
+        foreach ($candidate in @('python', 'py', 'python3')) {
+            $command = Get-Command $candidate -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($command) { $Python = $command.Source; break }
+        }
     }
-}
-if (-not $Python) {
-    Write-Host 'init: no python found on PATH' -ForegroundColor Red
-    exit 127
-}
+    if (-not $Python) { throw 'no Python executable found on PATH' }
+    # Resolve explicit paths too. PowerShell invocation errors do not reliably
+    # change LASTEXITCODE, so a stale successful exit must never pass a check.
+    $command = Get-Command $Python -CommandType Application -ErrorAction Stop | Select-Object -First 1
+    $Python = $command.Source
 
-$steps = @(
-    @{ Name = 'compile'; Args = @('-m', 'compileall', '-q', '.') },
-    @{ Name = 'docs';    Args = @('scripts/check_docs.py') },
-    @{ Name = 'tests';   Args = @('-m', 'unittest', 'discover', '-s', 'tests') }
-)
-
-Write-Host "== python: $(& $Python --version 2>&1) =="
-foreach ($step in $steps) {
-    Write-Host "== $($step.Name) =="
-    & $Python @($step.Args)
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "init: $($step.Name) failed with exit $LASTEXITCODE" -ForegroundColor Red
-        exit $LASTEXITCODE
+    $steps = @(
+        @{ Name = 'python';  Args = @('--version') },
+        @{ Name = 'compile'; Args = @('-m', 'compileall', '-q', '.') },
+        @{ Name = 'docs';    Args = @('scripts/check_docs.py') },
+        @{ Name = 'tests';   Args = @('-m', 'unittest', 'discover', '-s', 'tests') }
+    )
+    foreach ($step in $steps) {
+        Write-Host "== $($step.Name) =="
+        # Do not redirect native stderr into PowerShell's error stream: tests
+        # intentionally write warnings there. Check invocation and exit status.
+        & $Python @($step.Args)
+        $invoked = $?
+        $nativeExit = $LASTEXITCODE
+        if (-not $invoked -or $nativeExit -ne 0) {
+            if ($nativeExit -is [int] -and $nativeExit -ne 0) { $exitCode = $nativeExit }
+            throw "$($step.Name) failed (exit $nativeExit)"
+        }
     }
-}
 
-Write-Host '== all checks passed =='
-Write-Host ''
-Write-Host 'Next steps:'
-Write-Host '  1. Read feature_list.json and pick ONE not-started feature'
-Write-Host '  2. Read the doc routed by AGENTS.md section 4'
-Write-Host '  3. Re-run this script before claiming done'
+    Write-Host '== all checks passed =='
+    Write-Host 'Continue the agreed task; use AGENTS.md and docs/README.md for relevant guidance.'
+    $exitCode = 0
+}
+catch {
+    Write-Host "init: $($_.Exception.Message)" -ForegroundColor Red
+}
+finally {
+    [Environment]::SetEnvironmentVariable('PYTHONUTF8', $previousUtf8, 'Process')
+    [Environment]::SetEnvironmentVariable('PYTHONIOENCODING', $previousIoEncoding, 'Process')
+    [Console]::OutputEncoding = $previousConsoleEncoding
+    if ($pushedLocation) { Pop-Location }
+}
+exit $exitCode

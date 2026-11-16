@@ -9,15 +9,21 @@ permissions:
 
 jobs:
   public-core:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Compile public source
-        run: python -m compileall -q .
-      - name: Check agent docs
-        run: python scripts/check_docs.py
-      - name: Run zero-dependency tests
-        run: python -m unittest discover -s tests -v
+      - name: Verify source, docs and tests (Ubuntu)
+        if: runner.os == 'Linux'
+        run: bash ./init.sh
+      - name: Verify source, docs and tests (Windows PowerShell)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./init.ps1

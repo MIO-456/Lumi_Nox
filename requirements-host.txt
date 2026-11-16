@@ -1,0 +1,3 @@
+# Minimal optional dependencies for the public host; demo/config UI need none.
+sounddevice>=0.4.6,<1
+websockets>=12,<16

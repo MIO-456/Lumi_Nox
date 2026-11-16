@@ -16,21 +16,27 @@
 
 Lumi 和 Nox 是共同主持直播的两位 AI 虚拟主播。项目围绕双角色对话、观众互动、语音、记忆和游戏展开：观众点名时由谁回应，两人怎样接话，游戏决策怎样与说话配合，都是这里关心的工程问题。
 
-这个仓库是项目的 **open-core（核心源码公开）**：收录从实际直播系统整理的模块和工程资料，按阶段发布。首页画面展示实际节目，下面的终端演示带你了解双角色调度。
+这个仓库是项目的 **open-core（核心源码公开）**：收录从实际直播系统整理的模块和工程资料，按阶段发布。现在也提供通用公开宿主：用本机网页配置自己的模型、声音和一至两位角色，运行文字输入、语音输出与可选的 VTube Studio 嘴型。首页画面展示实际节目；公开宿主不包含 Lumi／Nox 的私人角色资产或正式直播完整中控。
 
-## 先跑一次：无需密钥的终端演示
+## 先跑一次：无需密钥的网页演示
 
 准备 Python 和 Git。**Python 3.12 是已验证的基线，也是当前 CI 使用的版本。**
 
 ```bash
 git clone https://github.com/MIO-456/Lumi_Nox.git
 cd Lumi_Nox
-python main.py
+python -m public_host
 ```
 
-macOS / Linux 如果使用 `python3` 命令，请将最后一行改为 `python3 main.py`。更详细的下载、运行和检查步骤见[快速开始](docs/GETTING_STARTED.md)。
+浏览器打开 **http://127.0.0.1:8765**，选择“离线演示”，保存本机配置，再点“开始会话”并输入消息。它使用真实的调度与取消流程，返回示例文本，**不调用模型、不播放声音、不连接 VTS**；事件会标记为模拟结果。首次默认选中“真实服务”，需主动切换为演示。
 
-这条路径只用 Python 标准库，**不需要先安装 `requirements.txt`，也不需要 API Key、模型、声卡或游戏**。几秒后会看到 `=== demo complete ===`。
+这条路径只用 Python 标准库，**不需要安装依赖，也不需要 API Key、模型、声卡或游戏**。macOS / Linux 按需将 `python` 换成 `python3`。结束后停止会话，在终端按 Ctrl+C 退出服务。下载与检查步骤见[快速开始](docs/GETTING_STARTED.md)。
+
+需要真实语音时，安装 `python -m pip install -r requirements-host.txt`，在页面填写自己的聊天与 TTS 基础地址、模型、密钥和角色音色。当前适配器支持 `/chat/completions` 文本响应与 `/audio/speech` 的完整 16 位 PCM WAV；各服务协议和音色权限仍需核对。详见[公开宿主使用指南](docs/PUBLIC_HOST.md)；可选皮套从 [VTS 与 Hiyori 示例](docs/VTS_EXAMPLE.md)开始。真实云服务、声卡和 Hiyori 效果需在使用者环境中实测。
+
+### 原有终端演示仍可使用
+
+运行 `python main.py`，几秒后会看到 `=== demo complete ===`，无需安装依赖或填写密钥。
 
 - **真实运行的部分**：事件总线、状态机、发言调度器和语音输出仲裁器；可以观察点名路由、轮换和占用发言权时的排队。
 - **演示占位的部分**：`DemoBrain` 返回固定台词；`demo_speak()` 只打印文字，**终端无声**。演示会自动跑完，不接收你手动输入的弹幕，也不连接直播间。
@@ -39,6 +45,7 @@ macOS / Linux 如果使用 `python3` 命令，请将最后一行改为 `python3 
 
 | 关注的问题 | 公开实现 | 从哪里看 |
 |---|---|---|
+| 怎样把自己的角色实际接起来 | 本机配置页、兼容模型与语音接口、播放收尾、取消与可选 VTS 嘴型 | [public_host/](public_host/)、[使用指南](docs/PUBLIC_HOST.md) |
 | 两位角色怎样轮流接话 | 点名路由、观众消息队列、轮换与跨角色历史镜像 | [core/speaker_scheduler.py](core/speaker_scheduler.py)、[dialogue/conversation.py](dialogue/conversation.py) |
 | 怎样避免同时占用语音输出 | 发声前申请、完成后释放，支持排队、丢弃和打断策略 | [core/speech_output_arbiter.py](core/speech_output_arbiter.py) |
 | 模块怎样共享节目状态 | 进程内事件总线与全局状态机 | [core/event_bus.py](core/event_bus.py)、[core/state_machine.py](core/state_machine.py) |
@@ -49,7 +56,7 @@ macOS / Linux 如果使用 `python3` 命令，请将最后一行改为 `python3 
 
 游戏模块包含泰拉瑞亚的 A* 寻路、目标规划与 tModLoader 模组，王国保卫战的 Lua 桥接与逐波策略，以及在独立进程中执行搜索的词语游戏求解器。各模块的使用条件不同，具体见对应指南。
 
-深入模型、语音和游戏模块时，再按对应指南准备服务、依赖、设备或游戏环境，并完成模块接线。
+公开宿主已连接上述基础对话流程；更深入的实时语音、ASR、记忆和游戏模块仍需按各自指南准备环境并接线。
 
 ## 可以一起做什么
 
@@ -63,8 +70,10 @@ macOS / Linux 如果使用 `python3` 命令，请将最后一行改为 `python3 
 
 ## 阅读路线与技术资料
 
-先运行 [main.py](main.py)，再按[快速开始中的读代码路线](docs/GETTING_STARTED.md#5-下一步读哪些代码)看调度器和仲裁器。深入某个子系统时可以参考：
+先试[公开宿主](docs/PUBLIC_HOST.md)，或运行 [main.py](main.py) 阅读最小调度示例，再按[快速开始中的读代码路线](docs/GETTING_STARTED.md#5-下一步读哪些代码)深入。子系统资料包括：
 
+- [通用公开宿主：配置、运行与验证](docs/PUBLIC_HOST.md)
+- [VTS 与 Hiyori 示例适配](docs/VTS_EXAMPLE.md)
 - [整体架构与数据流](docs/ARCHITECTURE.md)
 - [本次源码更新与验证范围](docs/releases/2026-11-12-source-refresh.md)
 - [独立语音模块与配置](docs/VOICE_MODULES.md)
@@ -76,6 +85,7 @@ macOS / Linux 如果使用 `python3` 命令，请将最后一行改为 `python3 
 
 ```text
 main.py                   # 标准库终端演示
+public_host/              # 通用宿主、服务适配、播放、VTS 与本机网页
 core/                     # 事件、状态、角色调度和语音仲裁
 dialogue/                 # 对话编排、模型调用、观众名称和联网搜索
 audio/                    # ASR、TTS、实时语音与播放处理
@@ -84,7 +94,7 @@ interfaces/               # 游戏规则、画板消息和歌曲资产契约
 examples/                 # 无需密钥的原型数据与临时音轨样本
 memory/                   # 记忆存储、提取与衰减
 games/                    # 游戏桥接与决策
-tests/                    # 无外部服务的公开核心检查
+tests/                    # 公开核心与宿主检查（外部服务由测试替身替代）
 docs/                     # 上手、架构与模块指南
 ```
 
@@ -100,12 +110,12 @@ python -m unittest discover -s tests -v
 python -m compileall -q .
 ```
 
-演示应正常结束，测试应显示 `OK`，编译检查成功时通常没有输出。GitHub Actions 在每次 push 和 PR 中使用 Ubuntu / Python 3.12，直接执行编译与 unittest；其中 `test_zero_setup_demo` 会调用 `main.py`。这些检查验证公开核心，不代表真实语音、游戏或整场直播已经验收。
+演示应正常结束，测试应显示 `OK`，编译检查成功时通常没有输出。GitHub Actions 配置为在每次 push 和 PR 中使用 Ubuntu、Windows / Python 3.12 执行编译与 unittest；其中 `test_zero_setup_demo` 会调用 `main.py`，宿主 HTTP 测试需要允许本机回环连接。这些检查验证公开核心与宿主的模拟链路，不代表真实语音、皮套、游戏或整场直播已经验收。
 
 ## 公开范围与许可
 
-代码沿用 [MIT 许可证](LICENSE)。角色的真实人设、世界观、角色 IP、声纹与私有音色 ID，以及观众数据库、运行日志和运营资料不在公开范围。Live2D 模型、动作与表情层、视觉、绘画和直播导演／中控台也未包含在这个仓库中；商业游戏本体需自行准备。
+代码沿用 [MIT 许可证](LICENSE)。通用启动器、配置页、对话调度和基础 VTS 嘴型适配已公开。角色的真实人设、世界观、角色 IP、声纹与私有音色 ID，以及观众数据库、运行日志和运营资料不在公开范围。Live2D 模型资产、私人动作与表情库、视觉与绘画运行系统、正式直播导演／完整中控仍未包含；商业游戏本体需自行准备。Hiyori 示例仅提供官方获取与适配说明，模型不随仓库分发，使用须遵守其独立许可。
 
-`settings/voice_config.py` 提供占位角色配置，`settings/voice_registry.py` 可读取使用者自己的音色变量；具体接入请参考 [.env.example](.env.example) 和对应模块。请使用自己的模型、角色与获准使用的声音素材，真实密钥仅保存在本地。
+公开宿主使用独立的 `.local-host/` 保存本机配置与 VTS 授权，不自动读取 `.env` 或私人直播配置。较早的模块仍使用 `settings/voice_config.py` 的占位配置和 `settings/voice_registry.py` 的音色变量，见 [.env.example](.env.example)。请使用自己的模型、角色与获准使用的声音素材，真实密钥仅保存在本地。
 
 新增公开模块会先核对隐私、许可与依赖边界；贡献的评审与采用流程见[贡献指南](CONTRIBUTING.md)。
