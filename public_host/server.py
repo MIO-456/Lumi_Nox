@@ -9,10 +9,11 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from public_host.config import ConfigStore, runtime_config, validate_config
+from public_host.config import ConfigStore, runtime_config, validate_config, validate_program
 from public_host.playback import make_player, output_devices
 from public_host.providers import Cancelled, CompatibleChat, ProviderError, make_services
 from public_host.session import Session
+from public_host.program import Program, activity_catalog
 
 WEB = Path(__file__).with_name("web")
 
@@ -26,13 +27,18 @@ class HostApp:
         self.store = store or ConfigStore()
         self.lock = threading.RLock()
         self.session = None
+        self.program = None
+        self.run_mode = "manual"
+        self.control_port = None
         self.preview = False
         self._job_thread = None
         self._job_cancel = threading.Event()
         self._job = {"running": False, "kind": "", "message": "", "result": None}
 
     def _busy(self):
-        return ((self.session is not None and self.session.snapshot()["running"])
+        program = self.program.snapshot() if self.program else {}
+        return (program.get("running", False) or program.get("blocked", False)
+                or (self.session is not None and self.session.snapshot()["running"])
                 or (self._job_thread is not None and self._job_thread.is_alive()))
 
     def _require_idle(self):
@@ -42,10 +48,11 @@ class HostApp:
     def status(self):
         with self.lock:
             result = self.session.snapshot() if self.session else {
-                "running": False, "stopping": False, "phase": "idle", "state": "IDLE",
+                "running": False, "stopping": False, "phase": "idle", "state": "IDLE", "state_metadata": {},
                 "speaker": None, "next_speaker": None, "queue_size": 0,
                 "last_error": "", "last_outcome": "", "messages": [], "events": []}
-            result.update(operation=copy.deepcopy(self._job), preview=self.preview)
+            result.update(operation=copy.deepcopy(self._job), preview=self.preview,
+                          run_mode=self.run_mode, program=self.program.snapshot() if self.program else None)
             return result
 
     def save(self, data):
@@ -53,20 +60,45 @@ class HostApp:
             self._require_idle()
             return self.store.save(data)
 
-    def _new_session(self, config, *, preview=False):
+    def _new_session(self, config, *, preview=False, managed=False):
         from public_host.avatar import VTSAvatar
         chat, synth = make_services(config)
         factory = lambda role: VTSAvatar(role["avatar"], self.store.directory / "vts")
         self.session = Session(config, chat=chat, synth=synth,
-                               player=make_player(config), avatar_factory=factory)
+                               player=make_player(config), avatar_factory=factory, managed=managed)
         self.preview = preview
         self.session.start()
         return self.session
 
-    def start(self):
+    def start(self, run_mode="manual"):
         with self.lock:
             self._require_idle()
-            self._new_session(runtime_config(self.store.load()))
+            if run_mode not in ("manual", "program"):
+                raise ProviderError("运行方式应为手动会话或节目单。")
+            config = runtime_config(self.store.load())
+            if run_mode == "program":
+                validate_program(config["program"], roles=config["roles"])
+                if config["program"].get("gomoku_port", 8791) == self.control_port:
+                    raise ProviderError("五子棋端口不能与运行台端口相同。")
+            self.run_mode, self.program = run_mode, None
+            self._new_session(config, managed=run_mode == "program")
+            if run_mode == "program":
+                self.program = Program(config, self.session)
+                self.program.start()
+            return self.status()
+
+    def next(self):
+        with self.lock:
+            if not self.program or not self.program.snapshot()["running"]:
+                raise HostBusy("请先开始节目单。")
+            self.program.next()
+            return self.status()
+
+    def end(self):
+        with self.lock:
+            if not self.program or not self.program.snapshot()["running"]:
+                raise HostBusy("请先开始节目单。")
+            self.program.end()
             return self.status()
 
     def stop(self):
@@ -76,6 +108,8 @@ class HostApp:
                 self._job["message"] = "正在停止检查，等待当前请求退出。"
             if self.session:
                 self.session.stop()
+            if self.program:
+                self.program.stop()
             return self.status()
 
     def interrupt(self):
@@ -88,6 +122,8 @@ class HostApp:
         with self.lock:
             if not self.session or self.preview:
                 raise HostBusy("请先开始会话。")
+            if self.program:
+                return {"request_id": self.program.submit(text, speaker, speech=speech)}
             return {"request_id": (self.session.submit_speech(text, speaker) if speech
                                     else self.session.submit_text(text, speaker))}
 
@@ -138,6 +174,7 @@ class HostApp:
     def preview_speech(self, speaker):
         with self.lock:
             self._require_idle()
+            self.program, self.run_mode = None, "manual"
             config = self.store.load()
             self._require_service(config, "tts")
             role = next((r for r in config["roles"] if r["name"] == speaker), None)
@@ -153,9 +190,7 @@ class HostApp:
                     snapshot = session.snapshot()
                     if not snapshot["running"]:
                         break
-                    terminal = any(e.get("data", {}).get("request_id") == request_id and
-                                   e.get("event_type") in ("turn_completed", "turn_failed", "turn_cancelled", "turn_simulated")
-                                   for e in snapshot["events"])
+                    terminal = session.result(request_id)
                     if terminal or snapshot["last_error"]:
                         session.stop()
                         break
@@ -232,6 +267,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(self.server.app.store.public())
             if path == "/api/status":
                 return self._json(self.server.app.status())
+            if path == "/api/activities":
+                return self._json({"activities": activity_catalog()})
             if path == "/api/devices":
                 return self._json({"devices": output_devices()})
             files = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
@@ -269,7 +306,9 @@ class Handler(BaseHTTPRequestHandler):
                 raise ProviderError("请求格式不正确。")
             app, path = self.server.app, urlsplit(self.path).path
             if path == "/api/config": result = app.save(data)
-            elif path == "/api/start": result = app.start()
+            elif path == "/api/start": result = app.start(data.get("run_mode", "manual"))
+            elif path == "/api/next": result = app.next()
+            elif path == "/api/end": result = app.end()
             elif path == "/api/stop": result = app.stop()
             elif path == "/api/interrupt": result = app.interrupt()
             elif path == "/api/chat": result = app.submit(data.get("text"), data.get("speaker"))
@@ -295,4 +334,5 @@ def make_server(*, app=None, port=8765):
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.daemon_threads = True
     server.app = app or HostApp()
+    server.app.control_port = server.server_port
     return server

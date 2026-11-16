@@ -3,6 +3,8 @@ let configuration, dirty = false, latest = {}, lastMessages = '', lastModelResul
 const $ = id => document.getElementById(id);
 const phaseNames = {idle:'尚未开始',starting:'正在连接',ready:'等待输入',generating:'正在生成回复',synthesizing:'正在合成声音',playing:'正在播放',stopping:'正在停止'};
 const outcomeNames = {complete:'已播完',simulated:'演示完成',cancelled:'已取消',failed:'失败'};
+const programPhaseNames = {idle:'尚未开始',preparing:'准备中',starting:'正在启动',opening:'开场中',chat:'聊天中',activity:'活动进行中',finalizing:'整场结算中',running:'正在运行',ready:'正在运行',transitioning:'正在切换',stopping:'正在清理',ending:'正在收尾',finished:'节目已结束',stopped:'已停止',failed:'运行失败',blocked:'等待清理',cleanup_failed:'清理未完成'};
+const stageKinds = [['opening','开场'],['chat','聊天'],['activity','五子棋'],['ending','收尾']];
 
 async function api(path, data) {
   const response = await fetch(path, data === undefined ? {cache:'no-store'} : {
@@ -52,7 +54,7 @@ function renderConfig() {
     }
     $('services').append(block);
   }
-  renderRoles();renderRoleSelects();
+  renderRoles();renderRoleSelects();renderProgram();
   const device=configuration.audio.device;
   $('device').replaceChildren(new Option('系统默认设备',''));
   if(device!==null) $('device').add(new Option(String(device),String(device)));
@@ -87,9 +89,58 @@ function renderRoleSelects() {
     $('speaker').add(new Option(role.name,role.name));$('preview-role').add(new Option(role.name,role.name));
   }
 }
+function renderProgram() {
+  const program=configuration.program;
+  $('stages').replaceChildren();
+  if(!program) return;
+  $('auto-chat-interval').value=program.auto_chat_interval;
+  $('gomoku-port').value=program.gomoku_port;
+  program.stages.forEach((stage,index)=>{
+    const card=document.createElement('article');card.className='stage';card.dataset.index=String(index);
+    const number=document.createElement('span');number.className='stage-number';number.textContent=String(index+1).padStart(2,'0');card.append(number);
+    const content=document.createElement('div');content.className='stage-content';
+    const row=document.createElement('div');row.className='stage-fields';
+    field(row,'环节名称',stage.title,value=>stage.title=value);
+    select(row,'类型',stage.kind,stageKinds,value=>{stage.kind=value;if(value==='activity')stage.activity='gomoku';else delete stage.activity;renderProgram();});
+    const duration=field(row,'时长（秒）',stage.duration,value=>stage.duration=value,'number');duration.min='1';duration.max='86400';duration.step='1';
+    content.append(row);
+    if(stage.kind!=='activity') {
+      const details=document.createElement('details');details.className='stage-prompt';const summary=document.createElement('summary');summary.textContent='本环节提示';details.append(summary);
+      field(details,'告诉角色这段要聊什么',stage.prompt||'',value=>stage.prompt=value,'textarea');content.append(details);
+    }
+    const actions=document.createElement('div');actions.className='stage-actions';
+    for(const [title,offset] of [['上移',-1],['下移',1]]) {
+      const control=button(actions,title,()=>{const other=index+offset;if(other<0||other>=program.stages.length)return;[program.stages[index],program.stages[other]]=[program.stages[other],program.stages[index]];renderProgram();edit();});
+      control.disabled=index+offset<0||index+offset>=program.stages.length;
+      control.setAttribute('aria-label',`${title}第 ${index+1} 个环节`);
+    }
+    const remove=button(actions,'删除',()=>{program.stages.splice(index,1);renderProgram();edit();});remove.setAttribute('aria-label',`删除第 ${index+1} 个环节`);
+    card.append(content,actions);$('stages').append(card);
+  });
+  renderProgramStatus(latest.program);
+}
+function renderProgramStatus(program={}) {
+  program=program||{};
+  const stage=program.stage||{}, active=!!program.running;
+  $('program-phase').textContent=programPhaseNames[program.phase]||program.phase||'准备开始';
+  $('program-stage').textContent=stage.title||($('run-mode').value==='manual'?'手动对话：由你输入消息':'保存配置，检查连接后开始');
+  const seconds=program.remaining_seconds;
+  const rounded=typeof seconds==='number'&&Number.isFinite(seconds)?Math.ceil(Math.max(0,seconds)):null;
+  $('program-countdown').textContent=rounded===null?'—':`${Math.floor(rounded/60)}:${String(rounded%60).padStart(2,'0')}`;
+  $('program-error').textContent=program.last_error||'';$('program-error').hidden=!program.last_error;
+  for(const card of $('stages').children)card.classList.toggle('current',active&&Number(card.dataset.index)===program.stage_index);
+  const url=program.activity?.url;
+  $('activity-link').hidden=true;
+  if(url&&program.activity?.platform_running) {
+    try { const target=new URL(url,location.origin);if(['http:','https:'].includes(target.protocol)&&['127.0.0.1','localhost','[::1]'].includes(target.hostname)){$('activity-link').href=target.href;$('activity-link').hidden=false;} } catch {}
+  }
+}
 function updateControls() {
-  const busy=!!(latest.running || latest.operation?.running), talking=latest.running&&!latest.stopping&&!latest.preview;
+  const programRunning=!!latest.program?.running;
+  const busy=!!(latest.running || programRunning || latest.program?.blocked || latest.operation?.running), talking=latest.running&&!latest.stopping&&!latest.preview&&(!programRunning||['opening','chat','activity','ending'].includes(latest.program?.phase));
   $('configuration').disabled=busy;$('save').disabled=busy;$('start').disabled=busy||dirty;
+  $('program-configuration').disabled=busy;$('run-mode').disabled=busy;
+  $('next').disabled=!programRunning||latest.stopping;$('end').disabled=!programRunning||latest.stopping||latest.program?.stage?.kind==='ending';
   $('stop').disabled=!busy;$('interrupt').disabled=!talking;
   for(const id of ['input','send','say','speaker']) $(id).disabled=!talking;
   for(const id of ['probe','preview']) $(id).disabled=busy||dirty||configuration?.mode!=='live';
@@ -98,8 +149,12 @@ function updateControls() {
 }
 function renderStatus(data) {
   latest=data;updateControls();
+  if((data.running||data.program?.running||data.program?.blocked)&&['manual','program'].includes(data.run_mode)) {
+    $('run-mode').value=data.run_mode;renderRunMode();
+  }
   const phase=phaseNames[data.phase]||data.phase;
-  $('status-pill').textContent=data.operation?.running?'连接检查中':phase;$('status-pill').classList.toggle('active',data.running);
+  $('status-pill').textContent=data.operation?.running?'连接检查中':data.program?.running||data.program?.blocked?(programPhaseNames[data.program.phase]||data.program.phase):phase;$('status-pill').classList.toggle('active',data.running||data.program?.running);
+  renderProgramStatus(data.program);
   $('phase').textContent=data.speaker?`${phase} · ${data.speaker}`:phase;
   $('queue').textContent=`排队 ${data.queue_size||0} 条${data.next_speaker?' · 下一位 '+data.next_speaker:''}`;
   $('demo-note').hidden=configuration.mode!=='demo';
@@ -114,7 +169,7 @@ function renderStatus(data) {
     }
     $('messages').scrollTop=$('messages').scrollHeight;
   }
-  $('events').textContent=data.events.slice(-25).map(e=>`${e.event_type}  ${JSON.stringify(e.data)}`).join('\n');
+  $('events').textContent=[...(data.events||[]),...(data.program?.events||[])].slice(-40).map(e=>`${e.event_type||e.type||e.kind||'program'}  ${JSON.stringify(e.data||e)}`).join('\n');
   const op=data.operation || {};
   if(!op.result?.models) { $('model-results').replaceChildren(); lastModelResult=''; }
   $('check-result').textContent=data.last_error || (op.result?.message) || op.message || '先保存配置。检查与试听在会话停止时使用。';
@@ -129,6 +184,11 @@ function renderStatus(data) {
 async function poll() {renderStatus(await api('/api/status'));}
 async function run(action) {try{notice('');await action();}catch(error){notice(error.message,true);}}
 $('mode').addEventListener('change',()=>{configuration.mode=$('mode').value;edit();$('demo-note').hidden=configuration.mode!=='demo';});
+function renderRunMode(){const program=$('run-mode').value==='program';$('program-editor').hidden=!program;$('start').textContent=program?'开始节目':'开始对话';$('program-hint').hidden=!program;renderProgramStatus(latest.program);}
+$('run-mode').addEventListener('change',renderRunMode);
+$('auto-chat-interval').addEventListener('input',()=>{configuration.program.auto_chat_interval=Number($('auto-chat-interval').value);edit();});
+$('gomoku-port').addEventListener('input',()=>{configuration.program.gomoku_port=Number($('gomoku-port').value);edit();});
+$('add-stage').addEventListener('click',()=>{const stages=configuration.program.stages;const index=stages.findIndex(stage=>stage.kind==='ending');stages.splice(index<0?stages.length:index,0,{id:`stage-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,kind:'chat',title:'聊天',duration:60,prompt:'自然地和观众聊天。'});renderProgram();edit();});
 $('device').addEventListener('change',()=>{const value=$('device').value;configuration.audio.device=value===''?null:(/^\d+$/.test(value)?Number(value):value);edit();});
 for(const name of ['service','roles']) $(name+'-tab').addEventListener('click',()=>{
   for(const other of ['service','roles']) {$(other+'-tab').setAttribute('aria-selected',String(name===other));$(other+'-panel').hidden=name!==other;}
@@ -140,7 +200,7 @@ $('devices').addEventListener('click',()=>run(async()=>{
   if(selected!==null&&!Array.from($('device').options).some(o=>o.value===String(selected))) $('device').add(new Option(`${selected} · 当前未找到`,String(selected)));
   $('device').value=selected===null?'':String(selected);
 }));
-for(const [id,path] of [['start','start'],['stop','stop'],['interrupt','interrupt'],['probe','probe-chat']]) $(id).addEventListener('click',()=>run(async()=>{await api('/api/'+path,{});if(id==='start'){lastMessages='';$('messages').replaceChildren();}await poll();}));
+for(const [id,path] of [['start','start'],['next','next'],['end','end'],['stop','stop'],['interrupt','interrupt'],['probe','probe-chat']]) $(id).addEventListener('click',()=>run(async()=>{await api('/api/'+path,id==='start'?{run_mode:$('run-mode').value}:{});if(id==='start'){lastMessages='';$('messages').replaceChildren();}await poll();}));
 $('preview').addEventListener('click',()=>run(async()=>{await api('/api/preview',{speaker:$('preview-role').value});await poll();}));
 async function send(speech=false) {
   const text=$('input').value, speaker=$('speaker').value||null;

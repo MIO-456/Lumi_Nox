@@ -9,7 +9,7 @@ Lumi 与 Nox 是两位 AI 虚拟主播，共同主持一场直播。本仓库是
 
 - 运行时：Python，**3.12 为 CI 验证基线**
 - 入口：`python -m public_host`（本机配置与运行台）、`main.py`（零依赖终端演示）、`python -m examples.prototype_contracts`、各游戏独立入口。
-- 宿主 demo 和自动测试只用标准库；真实声音/VTS 依赖 `requirements-host.txt`。旧语音、模型与游戏模块按各自指南安装依赖，不自动接入宿主。
+- 手动对话 demo 只用标准库；UI 默认节目模式，零依赖上手需主动选“手动对话”。五子棋网页需 aiohttp，真实声音/VTS 依赖 `requirements-host.txt`。其他游戏、ASR、B 站与 OBS 自动控制尚未接入。
 
 ## 2. 确认基线
 
@@ -19,7 +19,7 @@ python -m unittest discover -s tests    # 期望结尾：OK，数量随当前版
 python -m compileall -q .               # 无输出即通过
 ```
 
-这些检查不需要真实凭据、声卡或游戏；宿主测试会启动仅绑定回环地址的假 HTTP 服务。失败时记录基线、区分环境与当前任务问题，不自动扩大修复或回退他人改动。
+这些检查不需要真实凭据、声卡或商业游戏；宿主测试会启动仅绑定回环地址的假 HTTP 服务。安装 aiohttp 后还运行自有临时端口的真实五子棋整场测试，未安装时跳过该可选集成组。失败时记录基线、区分环境与当前任务问题，不自动扩大修复或回退他人改动。
 统一验证入口是 `./init.ps1`（Windows）或 `bash ./init.sh`（macOS / Linux / Git Bash）：编译、文档检查、测试。仅文档改动可先做文档检查；代码提交前运行相关检查，合并前完成全量验证。
 
 ## 3. 修改边界
@@ -28,7 +28,7 @@ python -m compileall -q .               # 无输出即通过
 |---|---|---|
 | 1 | 不提交正式角色的私人人设、真实 voice id、观众数据、Live2D 资产或商业游戏二进制；通用示例角色可以公开 | open-core 边界，见 [ARCHITECTURE](docs/ARCHITECTURE.md#whats-here-and-whats-not) |
 | 2 | 旧模块按需读环境变量；宿主使用独立 `.local-host/` 本机配置。实际凭据、token、数据库与运行记录永不提交，不自动继承私人配置 | 保护凭据和用户数据，见 `.gitignore` 与 [PUBLIC_HOST](docs/PUBLIC_HOST.md) |
-| 3 | 自动测试不访问真实云服务、声卡或游戏；允许仅回环地址的临时假服务和临时数据库，结束时清理自身资源 | 无凭据、可复现；真实链路验收单独说明 |
+| 3 | 自动测试不访问真实云服务、声卡或商业游戏；允许临时回环假服务、数据库及源码自带的五子棋，结束时清理自身资源 | 无凭据、可复现；真实服务和设备验收单独说明 |
 | 4 | 保持核心调度、占位配置和包初始化轻量，避免让零依赖入口导入可选 SDK 或设备；运行接线按既有边界延迟加载 | 保护零依赖入口，不能把整个目录的所有路径都宣称零依赖 |
 | 5 | 只用全限定导入（`from core.event_bus import EventBus`），不在根目录新增模块 | 2026-11-12 已完成目录迁移，见 [PACKAGE_LAYOUT](docs/PACKAGE_LAYOUT.md) |
 | 6 | 保持 Python 3.12 兼容，不使用仅 3.13+ 的语法或标准库 | CI 基线 |
@@ -41,6 +41,7 @@ python -m compileall -q .               # 无输出即通过
 |---|---|---|
 | 第一次把项目跑起来 | [GETTING_STARTED](docs/GETTING_STARTED.md) | 已能跑通 `main.py` |
 | 改公开宿主、服务适配、配置或会话 | [PUBLIC_HOST](docs/PUBLIC_HOST.md) → [ARCHITECTURE](docs/ARCHITECTURE.md) | 不涉及宿主 |
+| 改节目中控、共用导演或五子棋活动 | [PUBLIC_DIRECTOR](docs/PUBLIC_DIRECTOR.md) → [ARCHITECTURE](docs/ARCHITECTURE.md) | 只改手动对话 |
 | 接自己的 VTS 模型 | [VTS_EXAMPLE](docs/VTS_EXAMPLE.md) | 不用皮套 |
 | 改 `core/` 的调度、仲裁、事件、状态机 | [ARCHITECTURE](docs/ARCHITECTURE.md) → [CONVENTIONS](docs/CONVENTIONS.md) | 只改文档或纯文案 |
 | 写 / 改测试 | [TESTING](docs/TESTING.md) | 不涉及测试改动 |
@@ -89,8 +90,9 @@ python -m compileall -q .               # 无输出即通过
 
 | 路径 | 内容 |
 |---|---|
-| `core/` | 事件总线、状态机、发言调度器、语音仲裁器、路径与可选运行接线 |
-| `public_host/` | 本机 UI、服务适配、实际语音播放与可选 VTS；基础对话已接通，活动编排尚未接入 |
+| `core/` | 事件总线、状态机、发言调度器、语音仲裁器及 `program/` 共用节目推进/转场判断 |
+| `public_host/` | 本机节目中控与手动对话、服务适配、播放、VTS 和五子棋活动接线 |
+| `minigames/` | 五子棋真实规则与本地算法、整场计分、结果发言和网页底座 |
 | `dialogue/` | 文本链路回合编排、快脑、点名归一化、联网搜索 |
 | `audio/` | 实时语音会话、TTS、ASR、音频播放与音量 |
 | `settings/` | 角色配置与本地声线注册表（零依赖，占位值） |

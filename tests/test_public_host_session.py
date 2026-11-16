@@ -5,7 +5,7 @@ import time
 import unittest
 
 from public_host.session import Session
-from public_host.providers import ProviderError
+from public_host.providers import Cancelled, ProviderError
 
 
 WAIT = 3.0
@@ -117,6 +117,49 @@ class FakeAvatar:
 
 
 class PublicHostSessionTests(unittest.TestCase):
+    def test_retired_scope_cancels_current_queue_and_rejects_late_callbacks(self):
+        held = Step("Late reply", held=True)
+        session, providers = self.make_session(Providers(chat=[held]))
+        current = session.submit_text("old current", scope="stage-1")
+        self.assertTrue(held.entered.wait(WAIT))
+        queued = session.submit_text("old queued", scope="stage-1")
+        session.cancel_scope("stage-1")
+        self.assertEqual(session.result(queued)["outcome"], "cancelled")
+        with self.assertRaises(Cancelled):
+            session.submit_speech("stale narration", "Lumi", scope="stage-1")
+        fresh = session.submit_text("next stage", scope="stage-2")
+        held.release.set()
+        self.wait_for(lambda: session.result(fresh))
+        self.assertEqual(session.result(current)["outcome"], "cancelled")
+        self.assertEqual(session.result(fresh)["outcome"], "complete")
+        self.assertEqual(len(providers.calls["synth"]), 1)
+
+    def test_exact_result_survives_display_log_eviction_and_can_be_consumed(self):
+        session, _ = self.make_session()
+        request = session.submit_text("hello", scope="stage", source="auto")
+        self.wait_for(lambda: session.result(request))
+        for i in range(250):
+            session.bus.publish("turn_queued", {"request_id": str(i)}, source="test")
+        self.assertFalse(any(e["data"].get("request_id") == request
+                             for e in session.snapshot()["events"]))
+        self.assertEqual(session.result(request, consume=True)["source"], "auto")
+        self.assertIsNone(session.result(request))
+
+    def test_managed_session_leaves_program_state_to_director(self):
+        providers = Providers()
+        session = Session(config(), chat=providers, synth=providers, player=providers,
+                          managed=True)
+        self.addCleanup(session.stop)
+        session.start()
+        self.wait_for(lambda: session.snapshot()["phase"] == "ready")
+        request = session.submit_text("hello")
+        self.wait_for(lambda: session.result(request))
+        session.stop()
+        self.wait_for(lambda: not session.snapshot()["running"])
+        self.assertEqual(session.snapshot()["state"], "IDLE")
+        self.assertFalse(any(e["event_type"] == "state_changed"
+                             for e in session.snapshot()["events"]))
+
     def wait_for(self, predicate, message="host did not reach the expected state"):
         deadline = time.monotonic() + WAIT
         wake = threading.Event()

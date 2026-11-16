@@ -4,7 +4,7 @@
 #   bash ./init.sh            # compile + docs + tests
 #   PYTHON=py bash ./init.sh  # force a specific interpreter
 #
-# No cloud services, audio device, game, or model. Tests may use loopback.
+# No cloud services, audio device, commercial game or model. Local Gomoku uses loopback.
 set -euo pipefail
 cd "$(dirname "$0")"
 

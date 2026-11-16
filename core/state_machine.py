@@ -18,6 +18,7 @@ class State(enum.Enum):
     PLAYING_BUCKSHOT = "PLAYING_BUCKSHOT"
     PLAYING_TERRARIA = "PLAYING_TERRARIA"
     PLAYING_KR = "PLAYING_KR"
+    PLAYING_MINIGAME = "PLAYING_MINIGAME"
     DRAWING = "DRAWING"
     TRANSITIONING = "TRANSITIONING"
     ENDING = "ENDING"
@@ -27,7 +28,7 @@ class State(enum.Enum):
 _ACTIVITY_STATES = {
     State.CHATTING, State.PLAYING_WORDLE, State.PLAYING_HANDLE,
     State.PLAYING_BUCKSHOT, State.PLAYING_TERRARIA, State.PLAYING_KR,
-    State.DRAWING,
+    State.DRAWING, State.PLAYING_MINIGAME,
 }
 
 # 合法的状态转移表
@@ -40,12 +41,13 @@ _TRANSITIONS: dict[State, set[State]] = {
     State.PLAYING_BUCKSHOT: {State.TRANSITIONING},
     State.PLAYING_TERRARIA: {State.TRANSITIONING},
     State.PLAYING_KR: {State.TRANSITIONING},
+    State.PLAYING_MINIGAME: {State.TRANSITIONING},
     State.DRAWING: {State.TRANSITIONING},
     State.TRANSITIONING: {
         State.CHATTING,  # 回滚 / 活动→聊天
         State.ENDING,    # 活动→下播
         State.PLAYING_WORDLE, State.PLAYING_HANDLE, State.PLAYING_BUCKSHOT,
-        State.PLAYING_TERRARIA, State.PLAYING_KR, State.DRAWING,
+        State.PLAYING_TERRARIA, State.PLAYING_KR, State.DRAWING, State.PLAYING_MINIGAME,
     },
     State.ENDING: {State.IDLE},
 }
@@ -76,6 +78,11 @@ class StateMachine:
         with self._lock:
             return dict(self._metadata)
 
+    def snapshot(self) -> dict:
+        """Read state and its identifying metadata from the same transition."""
+        with self._lock:
+            return {"state": self._state.value, "metadata": dict(self._metadata)}
+
     def on_change(self, callback: Callable):
         """注册状态变更回调: callback(old_state, new_state, metadata)"""
         self._callbacks.append(callback)
@@ -90,6 +97,10 @@ class StateMachine:
             self._state = target
             if target == State.TRANSITIONING and metadata:
                 self._metadata = {**metadata, "started_at": time.time()}
+            elif target == State.PLAYING_MINIGAME:
+                # The generic state identifies the activity using explicit
+                # public run metadata rather than a role/game-specific enum.
+                self._metadata = dict(metadata or {})
             else:
                 self._metadata = {}
             meta_copy = dict(self._metadata)

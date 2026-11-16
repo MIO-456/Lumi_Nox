@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>五子棋 · 双角色对战</title>
+  <style>
+    :root {
+      --bg-0: #0e0a12;
+      --bg-1: #140e1a;
+      --bg-2: #1c1422;
+      --line: #352a3e;
+      --line-soft: #2a2030;
+      --player-one: #ff8fc4;
+      --player-one-soft: #ffb7d6;
+      --player-two: #ff8a3c;
+      --player-two-soft: #ffb277;
+      --gold: #ecc57e;
+      --gold-soft: #f7dfb0;
+      --board-bg: #241a2c;
+      --ink: #f4ecf1;
+      --ink-2: #b6a7b3;
+      --ink-3: #7d6c7b;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body {
+      color: var(--ink);
+      font-family: "Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+      background:
+        radial-gradient(900px 680px at 2% 8%, rgba(255, 143, 196, .11), transparent 68%),
+        radial-gradient(900px 680px at 98% 8%, rgba(255, 138, 60, .09), transparent 68%),
+        radial-gradient(760px 480px at 50% 102%, rgba(236, 197, 126, .045), transparent 72%),
+        rgba(14, 10, 18, .42);
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: .48;
+      background-image:
+        radial-gradient(1px 1px at 8% 22%, rgba(255,255,255,.2), transparent),
+        radial-gradient(1px 1px at 22% 73%, rgba(255,183,214,.2), transparent),
+        radial-gradient(1px 1px at 76% 20%, rgba(247,223,176,.2), transparent),
+        radial-gradient(1px 1px at 91% 67%, rgba(255,178,119,.2), transparent),
+        radial-gradient(1px 1px at 53% 88%, rgba(255,255,255,.13), transparent);
+    }
+
+    .stage {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      padding: 22px 52px 20px;
+      display: grid;
+      grid-template-rows: 126px minmax(0, 1fr);
+      gap: 12px;
+    }
+
+    .scoreboard {
+      position: relative;
+      z-index: 3;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .match-identity {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .match-clock {
+      min-width: 190px;
+      color: var(--gold-soft);
+      font: 800 clamp(40px, 3vw, 58px)/1 Georgia, "Times New Roman", serif;
+      letter-spacing: .04em;
+      text-align: center;
+      text-shadow: 0 0 24px rgba(236,197,126,.2);
+      visibility: hidden;
+    }
+    .match-clock.show { visibility: visible; }
+    .game-title {
+      color: #241a2c;
+      font-size: clamp(40px, 2.7vw, 54px);
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: .08em;
+      text-shadow: 0 2px 0 rgba(255,255,255,.24), 0 4px 18px rgba(14,10,18,.16);
+    }
+    .player {
+      --accent: var(--player-one);
+      --accent-soft: var(--player-one-soft);
+      position: absolute;
+      top: 204px;
+      left: 8px;
+      width: min(25.8vw, 500px);
+      height: 112px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 22px;
+      padding: 15px 24px;
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--accent);
+      border-radius: 16px;
+      background: linear-gradient(110deg, rgba(255,143,196,.075), rgba(28,20,34,.9) 58%, rgba(14,10,18,.88));
+      box-shadow: 0 18px 44px rgba(0,0,0,.28);
+      transition: border-color .25s ease, box-shadow .25s ease, transform .25s ease;
+    }
+    .player.right {
+      left: auto;
+      right: 8px;
+      grid-template-columns: auto minmax(0, 1fr);
+      border-left: 1px solid var(--line);
+      border-right: 4px solid var(--accent);
+      text-align: right;
+      background: linear-gradient(250deg, rgba(255,138,60,.075), rgba(28,20,34,.9) 58%, rgba(14,10,18,.88));
+    }
+    .player.active {
+      border-color: var(--accent);
+      box-shadow: 0 16px 42px rgba(0,0,0,.2), 0 0 28px rgba(255,143,196,.12);
+      transform: translateY(-2px);
+    }
+    .player.right.active { box-shadow: 0 16px 42px rgba(0,0,0,.2), 0 0 28px rgba(255,138,60,.12); }
+    .player-copy { min-width: 0; }
+    .player-name {
+      margin: 0;
+      color: var(--accent);
+      font-size: clamp(40px, 2.8vw, 54px);
+      font-weight: 800;
+      line-height: 1;
+      text-shadow: 0 0 20px rgba(255,143,196,.18);
+    }
+    .right .player-name { text-shadow: 0 0 20px rgba(255,138,60,.16); }
+    .score {
+      min-width: 82px;
+      display: flex;
+      align-items: baseline;
+      justify-content: flex-end;
+      gap: 7px;
+    }
+    .right .score { justify-content: flex-start; }
+    .score strong {
+      color: var(--ink);
+      font: 600 52px/1 Georgia, "Times New Roman", serif;
+    }
+
+    .arena {
+      position: relative;
+      z-index: 1;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .game-column {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+    .result-slot {
+      width: min(69vh, 675px);
+      height: 74px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+    }
+    .board-shell {
+      position: relative;
+      width: min(69vh, 675px);
+      aspect-ratio: 1;
+      padding: 18px;
+      border: 2px solid rgba(236,197,126,.34);
+      border-radius: 24px;
+      background:
+        linear-gradient(145deg, rgba(255,255,255,.035), rgba(14,10,18,.08)),
+        var(--board-bg);
+      box-shadow:
+        0 28px 76px rgba(0,0,0,.42),
+        0 0 42px rgba(236,197,126,.045),
+        inset 0 0 0 1px rgba(247,223,176,.1);
+    }
+    .board-shell::before,
+    .board-shell::after {
+      content: "";
+      position: absolute;
+      width: 46px;
+      height: 46px;
+      pointer-events: none;
+    }
+    .board-shell::before {
+      left: -1px;
+      top: -1px;
+      border-left: 2px solid var(--player-one);
+      border-top: 2px solid var(--player-one);
+      border-radius: 24px 0 0 0;
+    }
+    .board-shell::after {
+      right: -1px;
+      bottom: -1px;
+      border-right: 2px solid var(--player-two);
+      border-bottom: 2px solid var(--player-two);
+      border-radius: 0 0 24px 0;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border-radius: 12px;
+      background: rgba(10,7,14,.1);
+    }
+
+    .result-banner {
+      z-index: 5;
+      min-width: 300px;
+      padding: 12px 32px 14px;
+      border: 1px solid rgba(236,197,126,.54);
+      border-radius: 16px;
+      background: rgba(14,10,18,.94);
+      box-shadow: 0 18px 58px rgba(0,0,0,.42);
+      text-align: center;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(8px) scale(.96);
+      transition: opacity .28s ease, transform .28s ease;
+    }
+    .result-banner.show { opacity: 1; transform: translateY(0) scale(1); }
+    .result-banner strong { display: block; font-size: clamp(40px, 2.8vw, 50px); }
+
+    @media (max-width: 1250px) {
+      .stage { padding-left: 28px; padding-right: 28px; }
+      .player { left: 0; width: min(27vw, 340px); }
+      .player.right { left: auto; right: 0; }
+      .player { padding-left: 16px; padding-right: 16px; gap: 12px; }
+    }
+    @media (max-height: 760px) {
+      .stage { grid-template-rows: 105px minmax(0, 1fr); padding-top: 12px; }
+      .player { top: 170px; height: 88px; }
+      .player-name { font-size: 40px; }
+      .score strong { font-size: 42px; }
+      .board-shell { width: min(67vh, 570px); }
+      .result-slot { width: min(67vh, 570px); height: 62px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .player, .result-banner { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="stage">
+    <header class="scoreboard">
+      <article class="player" id="player0" style="--accent:var(--player-one);--accent-soft:var(--player-one-soft)">
+        <div class="player-copy">
+          <div class="player-name">角色一</div>
+        </div>
+        <div class="score"><strong>0</strong></div>
+      </article>
+
+      <article class="player right" id="player1" style="--accent:var(--player-two);--accent-soft:var(--player-two-soft)">
+        <div class="score"><strong>0</strong></div>
+        <div class="player-copy">
+          <div class="player-name">角色二</div>
+        </div>
+      </article>
+
+      <div class="match-identity">
+        <div class="match-clock" id="matchClock"></div>
+        <div class="game-title">五子棋</div>
+      </div>
+    </header>
+
+    <section class="arena">
+      <div class="game-column">
+        <div class="result-slot">
+          <div class="result-banner" id="resultBanner"><strong></strong></div>
+        </div>
+        <div class="board-shell">
+          <canvas id="board" width="900" height="900"></canvas>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('board');
+    const ctx = canvas.getContext('2d');
+    const resultBanner = document.getElementById('resultBanner');
+    const matchClock = document.getElementById('matchClock');
+    const rolePalettes = [
+      { main: '#ff8fc4', soft: '#ffb7d6' },
+      { main: '#ff8a3c', soft: '#ffb277' },
+    ];
+    let game = {
+      size: 15,
+      board: Array.from({length: 15}, () => Array(15).fill(0)),
+      scores: {'角色一': 0, '角色二': 0},
+      colors: {'角色一': 'black', '角色二': 'white'},
+      status: 'playing',
+      round_no: 1,
+      match_clock: {},
+      match_result: {},
+    };
+
+    function formatClock(seconds) {
+      const value = Math.max(0, Number(seconds) || 0);
+      const minutes = Math.floor(value / 60);
+      const remainder = Math.floor(value % 60);
+      return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
+    }
+
+    function ownerForStone(value, state) {
+      const wanted = value === 1 ? 'black' : 'white';
+      return Object.keys(state.colors || {}).find(name => state.colors[name] === wanted) || (value === 1 ? '角色一' : '角色二');
+    }
+
+    function drawBoard(state) {
+      const size = state.size || 15;
+      const w = canvas.width;
+      const pad = 58;
+      const gap = (w - pad * 2) / (size - 1);
+      ctx.clearRect(0, 0, w, w);
+
+      ctx.strokeStyle = 'rgba(247, 223, 176, .46)';
+      ctx.lineWidth = 2.4;
+      for (let i = 0; i < size; i++) {
+        const p = pad + i * gap;
+        ctx.beginPath(); ctx.moveTo(pad, p); ctx.lineTo(w - pad, p); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(p, pad); ctx.lineTo(p, w - pad); ctx.stroke();
+      }
+
+      const stars = [[3,3], [3,11], [7,7], [11,3], [11,11]];
+      ctx.fillStyle = 'rgba(247, 223, 176, .9)';
+      stars.forEach(([r, c]) => {
+        ctx.beginPath();
+        ctx.arc(pad + c * gap, pad + r * gap, 5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      const winningLine = state.winning_line || [];
+      if (winningLine.length > 1) {
+        const first = winningLine[0];
+        const last = winningLine[winningLine.length - 1];
+        ctx.save();
+        ctx.strokeStyle = 'rgba(236, 197, 126, .42)';
+        ctx.lineWidth = gap * .55;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(pad + first[1] * gap, pad + first[0] * gap);
+        ctx.lineTo(pad + last[1] * gap, pad + last[0] * gap);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      const winning = new Set(winningLine.map(([r, c]) => `${r},${c}`));
+      (state.board || []).forEach((row, r) => row.forEach((value, c) => {
+        if (!value) return;
+        const x = pad + c * gap;
+        const y = pad + r * gap;
+        const radius = gap * .39;
+        const owner = ownerForStone(value, state);
+        const slot = Object.keys(state.scores || {}).indexOf(owner);
+        const palette = rolePalettes[slot === 1 ? 1 : 0];
+        const isSecond = slot === 1;
+
+        ctx.save();
+        ctx.shadowColor = palette.main;
+        ctx.shadowBlur = isSecond ? 10 : 13;
+        ctx.fillStyle = isSecond ? '#17111b' : palette.main;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = isSecond ? palette.main : '#ffd3e7';
+        ctx.lineWidth = isSecond ? 7 : 2.5;
+        ctx.beginPath();
+        ctx.arc(x, y, radius - ctx.lineWidth / 2, 0, Math.PI * 2);
+        ctx.stroke();
+        if (isSecond) {
+          ctx.fillStyle = palette.soft;
+          ctx.beginPath();
+          ctx.arc(x, y, radius * .13, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = 'rgba(255,255,255,.34)';
+          ctx.beginPath();
+          ctx.arc(x - radius * .27, y - radius * .28, radius * .18, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        if (winning.has(`${r},${c}`)) {
+          ctx.strokeStyle = '#f7dfb0';
+          ctx.lineWidth = 5;
+          ctx.beginPath();
+          ctx.arc(x, y, radius + 5, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }));
+
+      if (state.last_move) {
+        const [r, c] = state.last_move;
+        const x = pad + c * gap;
+        const y = pad + r * gap;
+        ctx.fillStyle = '#f4ecf1';
+        ctx.beginPath();
+        ctx.arc(x, y, gap * .07, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#0e0a12';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x, y, gap * .14, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    function render(state) {
+      game = state;
+      const names = Object.keys(state.scores || {});
+      [0, 1].forEach(index => {
+        const name = names[index] || (index ? '角色二' : '角色一');
+        const card = document.getElementById(`player${index}`);
+        const palette = rolePalettes[index];
+        card.style.setProperty('--accent', palette.main);
+        card.style.setProperty('--accent-soft', palette.soft);
+        card.querySelector('.player-name').textContent = name;
+        card.querySelector('.score strong').textContent = state.scores?.[name] ?? 0;
+        card.classList.toggle('active', state.status === 'playing' && state.actor === name);
+      });
+
+      const remaining = state.match_clock?.remaining_sec;
+      const hasClock = Number.isFinite(Number(remaining));
+      matchClock.textContent = hasClock ? formatClock(remaining) : '';
+      matchClock.classList.toggle('show', hasClock);
+
+      const matchResult = state.match_result || {};
+      const result = matchResult.phase === 'match_over'
+        ? (matchResult.draw ? '最终平局' : `${matchResult.winner} 最终获胜`)
+        : (state.draw ? '平局' : (state.winner ? `${state.winner} 获胜` : ''));
+      resultBanner.querySelector('strong').textContent = result;
+      resultBanner.classList.toggle('show', Boolean(result));
+      drawBoard(state);
+    }
+
+    let retry = 600;
+    function connect() {
+      const pathParts = location.pathname.split('/').filter(Boolean);
+      const gameId = pathParts[0] === 'games' ? pathParts[1] : 'gomoku';
+      const socket = new WebSocket(`ws://${location.host}/ws?game_id=${encodeURIComponent(gameId)}`);
+      socket.onopen = () => {
+        retry = 600;
+      };
+      socket.onmessage = event => {
+        const message = JSON.parse(event.data);
+        if (message.type === 'game_state') render(message.state.state || message.state);
+      };
+      socket.onclose = () => {
+        setTimeout(connect, retry);
+        retry = Math.min(retry * 1.6, 5000);
+      };
+    }
+
+    render(game);
+    connect();
+  </script>
+</body>
+</html>

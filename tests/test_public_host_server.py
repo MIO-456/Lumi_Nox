@@ -66,6 +66,44 @@ class BlockedChat(FakeChat):
 
 
 class PublicHostHTTPTests(unittest.TestCase):
+    def test_program_http_preflight_and_nonblocking_end_controls(self):
+        config = default_config()
+        config["mode"] = "demo"
+        self.assertEqual(self.post("/api/config", config)[0], 200)
+        code, rejected, _ = self.post("/api/start", {"run_mode": "program"})
+        self.assertEqual(code, 400)
+        self.assertIn("两个不同角色", rejected["error"])
+        self.assertFalse(self.status()["running"])
+        config["roles"][1]["enabled"] = True
+        config["program"]["stages"] = [
+            {"id": "open", "kind": "opening", "title": "开场", "duration": 30, "prompt": "hello"},
+            {"id": "end", "kind": "ending", "title": "结束", "duration": 0.1, "prompt": "bye"}]
+        self.assertEqual(self.post("/api/config", config)[0], 200)
+        self.assertEqual(self.post("/api/start", {"run_mode": "program"})[0], 200)
+        self.wait_status(lambda s: s["program"]["phase"] == "opening")
+        self.assertEqual(self.post("/api/config", config)[0], 409)
+        self.assertEqual(self.post("/api/start")[0], 409)
+        self.assertEqual(self.post("/api/end")[0], 200)
+        final = self.wait_status(lambda s: not s["running"] and not s["program"]["running"])
+        self.assertEqual(final["program"]["phase"], "finished", final)
+        self.assertEqual(self.post("/api/next")[0], 409)
+        code, catalog, _ = self.request("/api/activities")
+        self.assertEqual(code, 200)
+        self.assertEqual(catalog["activities"][0]["roles_required"], 2)
+        self.assertEqual(self.post("/api/start", {"run_mode": "manual"})[0], 200)
+        self.assertIsNone(self.status()["program"])
+
+    def test_program_rejects_control_port_collision_before_starting(self):
+        config = default_config()
+        config["mode"] = "demo"
+        config["roles"][1]["enabled"] = True
+        config["program"]["gomoku_port"] = self.server.server_port
+        self.assertEqual(self.post("/api/config", config)[0], 200)
+        code, result, _ = self.post("/api/start", {"run_mode": "program"})
+        self.assertEqual(code, 400)
+        self.assertIn("端口", result["error"])
+        self.assertFalse(self.status()["running"])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

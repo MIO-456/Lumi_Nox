@@ -47,5 +47,46 @@
         "mouth_gain": 1.0
       }
     }
-  ]
+  ],
+  "program": {
+    "auto_chat_interval": 5,
+    "gomoku_port": 8791,
+    "stages": [
+      {
+        "id": "opening",
+        "kind": "opening",
+        "title": "开场",
+        "duration": 15,
+        "prompt": "简短欢迎观众来到今天的直播，介绍接下来会聊天和玩五子棋。"
+      },
+      {
+        "id": "chat-1",
+        "kind": "chat",
+        "title": "聊天",
+        "duration": 60,
+        "prompt": "自然地继续直播聊天，提出一个轻松的话题，不要虚构观众留言。"
+      },
+      {
+        "id": "gomoku",
+        "kind": "activity",
+        "title": "五子棋",
+        "duration": 300,
+        "activity": "gomoku"
+      },
+      {
+        "id": "chat-2",
+        "kind": "chat",
+        "title": "聊天",
+        "duration": 60,
+        "prompt": "聊聊刚才的游戏或一个轻松的话题，不要虚构观众留言。"
+      },
+      {
+        "id": "ending",
+        "kind": "ending",
+        "title": "结束",
+        "duration": 15,
+        "prompt": "简短感谢观众并告别，结束这场直播。"
+      }
+    ]
+  }
 }

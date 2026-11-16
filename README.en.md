@@ -25,7 +25,9 @@ This repository publishes selected engine modules and a runnable public host.
 It is not the complete current livestream system: the public snapshot and the
 private production runtime can differ. The public host connects your own models,
 voices and one or two characters through a local web UI, with optional VTube Studio
-mouth movement. It does not include the real characters' personas or assets.
+mouth movement. Its programme console runs opening → chat → Gomoku → chat → ending,
+with a separate manual conversation mode. It does not include the real characters'
+personas, assets, platform accounts or full production environment.
 
 ## Try it now (standard library only)
 
@@ -37,7 +39,8 @@ cd Lumi_Nox
 python -m public_host
 ```
 
-Open **http://127.0.0.1:8765**, select the offline demo mode, save the local
+Open **http://127.0.0.1:8765**, select the offline demo mode and change the run method
+from the default programme mode to **manual conversation (手动对话)**. Save the local
 configuration, start a session and enter a message. The initial selection is real
 services; switch it to demo explicitly. Demo uses placeholder replies and the real
 scheduling/cancellation flow, but **makes no model calls, plays no audio and does
@@ -52,6 +55,11 @@ text replies from `/chat/completions` and complete 16-bit PCM WAV responses from
 adapter. See the [public host guide (中文)](docs/PUBLIC_HOST.md) and optional
 [VTS/Hiyori setup](docs/VTS_EXAMPLE.md). Real cloud services, audio devices
 and Hiyori still need verification in the user's environment.
+
+For the complete programme, install `python -m pip install aiohttp`, enable two
+differently named characters, and select programme mode. Gomoku plays and scores
+actual games even with silent demo services: moves come from local algorithms,
+not an LLM. See the [programme and Gomoku guide (中文)](docs/PUBLIC_DIRECTOR.md).
 
 ### The original terminal demo
 
@@ -72,10 +80,17 @@ These are source modules to study and integrate. Unlike the standard-library
 demo, voice and game integrations need their own services, dependencies and setup;
 their presence here does not make the full livestream runnable from this repo.
 
-- **Public host** (`public_host/`) — local configuration and session UI, compatible
+- **Public host** (`public_host/`) — local configuration, programme and session UI, compatible
   chat/TTS adapters, one- or two-character turn-taking, actual playback completion,
-  cancellation and optional VTS mouth movement. It does not automatically wire in
-  the separate game, ASR, memory or realtime voice modules listed below.
+  cancellation and optional VTS mouth movement. Programme mode includes automatic
+  chat and Gomoku; other games, ASR, memory, realtime voice, Bilibili input and OBS
+  automation still require separate integration.
+- **Programme flow** (`core/program/`) — shared timing, advancement, transition order
+  and lifecycle receipts, used by the public host and a production-director candidate.
+  Deployment and live testing of that production candidate are still pending.
+- **Gomoku** (`minigames/`) — existing local rules, automatic moves, match scoring and
+  a browser board, with explicit preparation, activation and confirmed stopping.
+  Its optional web dependency is `aiohttp`; no commercial game is needed.
 - **Realtime dual-session engine** (`audio/realtime_chat.py`, `audio/realtime_chat_protocol.py`)
   — each character runs on its own end-to-end speech-to-speech session (doubao
   SC2.0 over websocket); audio is attributed and routed per speaker, so two
@@ -123,8 +138,9 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 
 ```
 main.py                  # zero-setup co-hosting demo
-public_host/             # local UI, sessions, service adapters, audio and VTS
-core/                    # events, state, turn selection and speech arbitration
+public_host/             # local console, programme I/O, sessions, audio and VTS
+core/                    # programme flow, events, state, turns and speech arbitration
+minigames/               # Gomoku rules, local bots, match results and browser platform
 dialogue/                # conversations, model calls, viewer names and web search
 audio/                   # ASR, TTS, realtime voice and output processing
 settings/                # example character configuration and voice registry
@@ -180,16 +196,17 @@ additional integrations and assets.
   is included. Bring a model you may use and load it in VTS; the
   [Hiyori guide](docs/VTS_EXAMPLE.md) links to official sources and separate license
   terms. Model files and private motion/expression assets are not bundled.
-- **The game** — the game bridge talks to a commercial game over TCP; you supply
-  the game itself. The Terraria-side LumiBridge mod source is included and built
+- **Commercial games** — their bridges require a separately installed game;
+  Gomoku is included and needs no commercial assets. The Terraria-side LumiBridge mod source is included and built
   by the bot; see [its setup guide](games/terraria/mod/README.md).
 - **Personas** — the public host supplies generic example roles you can edit;
   `settings/voice_config.py` also ships placeholders for older modules. The real
   Lumi / Nox persona prompts and worldview are intentionally closed.
 
 Vision and drawing runtimes, private Live2D motion/expression assets, voiceprints,
-and the full production director/control console remain private. The public host's
-launcher, configuration UI and basic orchestration are included.
+and production-specific platform/device wiring remain private. The public programme
+console, shared scheduling core and Gomoku are included. This does not establish
+that the production-director candidate has passed a real broadcast trial.
 
 ## Verification
 

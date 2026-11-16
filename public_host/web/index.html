@@ -2,11 +2,11 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Lumi_Nox · 公开运行台</title><link rel="stylesheet" href="/style.css">
+  <title>Lumi_Nox · 直播中控</title><link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
 </head>
 <body>
-  <header class="top"><div><span class="eyebrow">LUMI_NOX / OPEN HOST</span><h1>让你的角色，开始说话。</h1><p>连接自己的模型与声音，在这里完成第一场对话。</p></div><span id="status-pill" class="pill">尚未开始</span></header>
+  <header class="top"><div><span class="eyebrow">LUMI_NOX / LIVE CONSOLE</span><h1>排好节目，让角色登场。</h1><p>连接自己的角色与服务，完成开场、聊天、游戏和收尾。</p></div><span id="status-pill" class="pill">尚未开始</span></header>
   <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
   <main>
     <aside class="panel setup">
@@ -25,17 +25,25 @@
       <div class="save-bar"><button id="save" class="primary">保存本机配置</button><span class="hint">Key 仅保存在本机，保存后不回显。</span></div>
     </aside>
     <section class="workspace">
+      <section class="panel program">
+        <div class="panel-title"><div><span class="eyebrow">02 / PROGRAM</span><h2>节目单与运行</h2></div><label class="run-mode">运行方式<select id="run-mode"><option value="program">按节目单运行</option><option value="manual">手动对话</option></select></label></div>
+        <fieldset id="program-configuration"><legend class="sr-only">节目单配置</legend><div id="program-editor"><div id="stages" class="stages"></div><div class="program-edit-actions"><button id="add-stage" type="button">＋ 添加环节</button><label class="inline-field">自动聊天间隔 <input id="auto-chat-interval" type="number" min="1" max="600" step="1"> 秒</label></div><details class="stage-prompt"><summary>游戏网页设置</summary><label class="inline-field">本机端口 <input id="gomoku-port" type="number" min="1024" max="65535" step="1"></label></details><p class="hint">时间以秒计。五子棋需要启用两位不同的角色；游戏按真实规则自动落子。修改后请保存本机配置。</p></div></fieldset>
+        <div class="program-now" aria-live="polite"><div><span id="program-phase" class="muted">准备开始</span><strong id="program-stage">保存配置，检查连接后开始</strong></div><span id="program-countdown">—</span></div>
+        <p id="program-error" class="program-error" role="alert" hidden></p>
+        <div class="program-actions"><button id="start" class="primary">开始节目</button><button id="next" disabled>下一环节</button><button id="end" disabled>进入收尾</button><button id="stop" disabled>立即停止</button><a id="activity-link" class="activity-link" target="_blank" rel="noopener" hidden>查看游戏画面 ↗</a></div>
+        <p id="program-hint" class="hint">下一环节会先清理当前活动；进入收尾会执行结束环节；立即停止会取消输出并清理资源。</p>
+      </section>
       <div class="panel session">
-        <div class="panel-title"><div><span class="eyebrow">02 / SESSION</span><h2>对话现场</h2></div><div class="controls"><button id="start" class="primary">开始会话</button><button id="stop" disabled>停止会话</button></div></div>
+        <div class="panel-title"><div><span class="eyebrow">03 / SESSION</span><h2>对话现场</h2></div><span class="muted">手工输入与角色发言</span></div>
         <div class="session-meta"><span id="phase">保存配置后即可开始</span><span id="queue">等待输入</span></div>
-        <div id="demo-note" class="demo-note" hidden>离线演示：回复是示例文本，不调用模型、不播放声音、不连接 VTS。</div>
+        <div id="demo-note" class="demo-note" hidden>离线演示：使用示例回复，不调用模型、不播放声音、不连接 VTS。五子棋仍按真实规则运行。</div>
         <div id="messages" class="messages" aria-live="polite"><div class="empty"><span class="empty-icon">◌</span><h3>从一句「你好」开始</h3><p>角色会依次回应，也可以指定其中一位。<br>只有播放结束，才交给下一个角色。</p></div></div>
         <form id="composer"><label class="sr-only" for="input">输入消息或要朗读的文字</label><textarea id="input" rows="3" maxlength="12000" placeholder="写一句话给角色，或填写要直接朗读的内容…" disabled></textarea><div class="composer-bottom"><label>回应角色 <select id="speaker" aria-label="回应角色"><option value="">自动轮换</option></select></label><div><button id="interrupt" type="button" class="text-button" disabled>打断当前</button><button id="say" type="button" disabled>直接朗读</button><button id="send" type="submit" class="primary" disabled>发送消息 ↗</button></div></div></form>
       </div>
-      <div class="panel checks"><div class="panel-title"><div><span class="eyebrow">03 / CHECK</span><h2>连接检查</h2></div><span class="muted">会产生一次服务请求</span></div><div class="check-actions"><button id="probe">测试聊天连接</button><select id="preview-role" aria-label="试听角色"></select><button id="preview">试听声音</button></div><p id="check-result" class="hint">先保存配置。检查与试听在会话停止时使用，避免打断正在说话的角色。</p><div id="model-results"></div></div>
+      <div class="panel checks"><div class="panel-title"><div><span class="eyebrow">04 / CHECK</span><h2>连接检查</h2></div><span class="muted">会产生一次服务请求</span></div><div class="check-actions"><button id="probe">测试聊天连接</button><select id="preview-role" aria-label="试听角色"></select><button id="preview">试听声音</button></div><p id="check-result" class="hint">先保存配置。检查与试听在会话停止时使用，避免打断正在说话的角色。</p><div id="model-results"></div></div>
       <details class="panel events"><summary>运行事件 <span class="muted">查看完成、取消和失败</span></summary><pre id="events"></pre></details>
     </section>
   </main>
-  <footer>通用能力公开，角色由你定义。<span>仅本机访问 · 不自动开播</span></footer>
+  <footer>通用能力公开，角色由你定义。<span>仅本机访问 · 推流由你控制</span></footer>
 </body>
 </html>

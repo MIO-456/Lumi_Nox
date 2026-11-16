@@ -6,7 +6,7 @@
 
 2026-11-12，原来平铺在根目录的22个模块按用途分组。根目录保留`main.py`，下载后仍可运行`python main.py`，无需安装本项目或配置`PYTHONPATH`。游戏、记忆、原型接口及其示例目录保持原位。
 
-2026-11-15 新增 `public_host/`，提供独立的通用启动、配置页、模型与语音适配、调度和可选 VTS 嘴型。它复用 `core/`，使用 `python -m public_host` 启动；旧模块的目录和导入方式保持不变。它不等于私人正式直播的完整启动器和中控，见[宿主指南](PUBLIC_HOST.md)。
+通用入口 `public_host/` 提供配置页、节目中控、模型与语音适配和可选 VTS 嘴型，使用 `python -m public_host` 启动。节目推进与转场判断位于 `core/program/`，首个真实活动五子棋位于 `minigames/`；旧模块的目录和导入方式保持不变。私人平台/设备接线仍未包含，见[宿主指南](PUBLIC_HOST.md)和[中控指南](PUBLIC_DIRECTOR.md)。
 
 | 新目录 | 原来的文件名（文件名本身保留） |
 |---|---|
@@ -36,12 +36,12 @@ from settings.voice_config import get_speaker_config
 
 | 入口 | 用途 |
 |---|---|
-| `python -m public_host` | 本机网页配置与对话。离线演示仅用标准库；真实语音和 VTS 使用 `requirements-host.txt` 及用户自己的服务和模型。 |
+| `python -m public_host` | 本机节目中控与手动对话。手动对话的离线演示仅用标准库；默认节目中的五子棋需 aiohttp，真实语音和 VTS 使用 `requirements-host.txt` 及用户自己的服务和模型。 |
 | `python main.py` | 自动运行的无声终端调度演示，无需密钥。 |
 | `python -m games...` | 对应游戏的独立入口；按各游戏指南准备本体、依赖和桥接。 |
 | `python -m examples.prototype_contracts` | 原型接口与离线样本，不启动真实游戏或演唱服务。 |
 
-需要独立接线时，在仓库根目录的调用脚本中使用上面的包导入方式。公共宿主不会自动启用其他目录中的游戏、记忆或实时语音功能。
+需要独立接线时，在仓库根目录的调用脚本中使用上面的包导入方式。公共宿主已连接五子棋；其他游戏、记忆或实时语音仍需各自适配。
 
 ## 通用宿主内部目录
 
@@ -50,6 +50,8 @@ from settings.voice_config import get_speaker_config
 | `public_host/__main__.py`、`server.py`、`web/` | 命令行启动、本机 HTTP 接口和网页；默认地址 `http://127.0.0.1:8765`。 |
 | `public_host/config.py` | 校验和保存使用者自己的配置。 |
 | `public_host/session.py` | 将消息、角色调度、模型、合成、播放和取消连接起来。 |
+| `core/program/`、`public_host/program.py` | 共用节目推进/转场判断，以及公开宿主的语音与活动 I/O 接线。正式导演候选也调用共用层，正式实机推广尚未完成。 |
+| `public_host/activities/gomoku.py`、`minigames/` | 五子棋准备、激活、确认停止；已有规则算法、计分和网页底座。aiohttp 在准备活动时加载。 |
 | `public_host/providers.py`、`playback.py` | 兼容聊天/TTS 接口和实际音频播放；离线演示使用替身。 |
 | `public_host/avatar.py` | 可选的 VTS 授权、模型核对和音量嘴型；不附带模型文件。 |
 

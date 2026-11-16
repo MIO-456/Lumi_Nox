@@ -1,7 +1,14 @@
 # Game integrations
 
-Each game lives with its bridge, decision logic and local assets. Commercial game
-binaries are never included.
+Each integration below lives with its bridge, decision logic and local assets.
+Commercial game binaries are never included. These entries remain separate from
+the public programme console.
+
+The console's first connected activity is **Gomoku**, in [minigames/](../minigames/).
+Install aiohttp, enable two differently named roles, and use programme mode in
+`python -m public_host`; see the [programme guide](../docs/PUBLIC_DIRECTOR.md).
+Existing local algorithms choose the moves, not an LLM. Its rules, scoring and
+web board run even with silent demo speech; no commercial game is required.
 
 | Directory | Contents | Example entry point |
 |---|---|---|

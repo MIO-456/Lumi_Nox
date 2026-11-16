@@ -23,6 +23,8 @@ class _Request:
     kind: str
     text: str
     speaker: str | None
+    scope: str | None = None
+    source: str = "manual"
 
 
 class Session:
@@ -33,7 +35,7 @@ class Session:
     until they return. A stopped worker can never be replaced while still alive.
     """
 
-    def __init__(self, config, *, chat, synth, player, avatar_factory=None):
+    def __init__(self, config, *, chat, synth, player, avatar_factory=None, managed=False):
         self._config = deepcopy(config)
         roles = self._config.get("roles", [])
         names = [role.get("name") for role in roles]
@@ -44,6 +46,7 @@ class Session:
         self._roles = {role["name"]: role for role in roles}
         self._chat, self._synth, self._player = chat, synth, player
         self._avatar_factory = avatar_factory
+        self._managed = managed
         self._lock = threading.RLock()
         self._condition = threading.Condition(self._lock)
         self._thread = None
@@ -61,6 +64,8 @@ class Session:
         self._last_outcome = ""
         self._messages = deque(maxlen=100)
         self._events = deque(maxlen=200)
+        self._results = {}
+        self._cancelled_scopes = set()
         # Each entry is one completed conversation turn, including partner notes.
         self._histories = {name: deque(maxlen=20) for name in names}
         self._avatars = {}
@@ -88,12 +93,15 @@ class Session:
             self._pending.clear()
             self._messages.clear()
             self._events.clear()
+            self._results.clear()
+            self._cancelled_scopes.clear()
             for history in self._histories.values():
                 history.clear()
             self.scheduler.reset_rotation()
             self._last_error = self._last_outcome = ""
             self._phase = "starting"
-            self.state_machine.transition_to(State.OPENING)
+            if not self._managed:
+                self.state_machine.transition_to(State.OPENING)
             self._thread = threading.Thread(
                 target=self._run, args=(generation, self._stop_event),
                 name=f"public-host-{generation}", daemon=True,
@@ -109,7 +117,7 @@ class Session:
             self._stopping = True
             self._phase = "stopping"
             self._stop_event.set()
-            self._pending.clear()
+            self._cancel_pending()
             self._cancel_current("session_stopped")
             self._publish("session_stopping", {})
             self._condition.notify_all()
@@ -122,19 +130,56 @@ class Session:
             self._condition.notify_all()
             return self.snapshot()
 
-    def submit_text(self, text, speaker=None):
-        return self._submit("chat", text, speaker)
+    def submit_text(self, text, speaker=None, *, scope=None, source="manual"):
+        return self._submit("chat", text, speaker, scope, source)
 
-    def submit_speech(self, text, speaker):
-        return self._submit("speech", text, speaker)
+    def submit_speech(self, text, speaker, *, scope=None, source="manual"):
+        return self._submit("speech", text, speaker, scope, source)
+
+    def result(self, request_id, *, consume=False):
+        """Exact terminal result, independent of the bounded display event log."""
+        with self._lock:
+            result = self._results.pop(request_id, None) if consume else self._results.get(request_id)
+            return deepcopy(result)
+
+    def cancel_scope(self, scope):
+        """Retire a stage: reject late submissions and cancel its queued/current output."""
+        if scope is None:
+            raise ValueError("阶段标识不能为空。")
+        with self._condition:
+            self._cancelled_scopes.add(scope)
+            self._cancel_pending(scope)
+            if self._current is not None and self._current.scope == scope:
+                self._cancel_current("stage_finished")
+            self._condition.notify_all()
+
+    def _cancel_pending(self, scope=None):
+        keep = deque()
+        while self._pending:
+            request = self._pending.popleft()
+            if scope is None or request.scope == scope:
+                self._finish_request(request, "cancelled", request.speaker)
+            else:
+                keep.append(request)
+        self._pending = keep
+
+    def _finish_request(self, request, outcome, speaker, error=None):
+        result = {"request_id": request.request_id, "kind": request.kind,
+                  "speaker": speaker, "outcome": outcome, "scope": request.scope,
+                  "source": request.source, **({"error": error} if error else {})}
+        self._results[request.request_id] = result
+        event_type = "turn_completed" if outcome == "complete" else f"turn_{outcome}"
+        self._publish(event_type, result)
 
     def snapshot(self):
         with self._lock:
+            state = self.state_machine.snapshot()
             return {
                 "running": self._thread is not None and self._thread.is_alive(),
                 "stopping": self._stopping,
                 "phase": self._phase,
-                "state": self.state_machine.state.value,
+                "state": state["state"],
+                "state_metadata": state["metadata"],
                 "speaker": self._speaker,
                 "next_speaker": self.scheduler.next_speaker,
                 "queue_size": len(self._pending),
@@ -144,7 +189,7 @@ class Session:
                 "events": deepcopy(list(self._events)),
             }
 
-    def _submit(self, kind, text, speaker):
+    def _submit(self, kind, text, speaker, scope=None, source="manual"):
         if not isinstance(text, str) or not text.strip():
             raise ValueError("请输入非空文字。")
         if len(text) > 12000:
@@ -153,15 +198,18 @@ class Session:
             raise ValueError("指定的角色不存在。")
         if kind == "speech" and speaker is None:
             raise ValueError("直接朗读需要指定角色。")
-        request = _Request(uuid.uuid4().hex, kind, text.strip(), speaker)
+        request = _Request(uuid.uuid4().hex, kind, text.strip(), speaker, scope, source)
         with self._condition:
             if self._thread is None or not self._thread.is_alive() or self._stopping:
                 raise ProviderError("会话尚未运行或正在停止。")
+            if scope is not None and scope in self._cancelled_scopes:
+                raise Cancelled()
             if len(self._pending) >= 100:
                 raise ProviderError("等待队列已达到 100 条，请等待当前任务完成。")
             self._pending.append(request)
             self._publish("turn_queued", {
                 "request_id": request.request_id, "kind": kind, "speaker": speaker,
+                "scope": scope, "source": source,
             })
             self._condition.notify()
         return request.request_id
@@ -184,7 +232,8 @@ class Session:
             with self._condition:
                 if stop_event.is_set():
                     raise Cancelled()
-                self.state_machine.transition_to(State.CHATTING)
+                if not self._managed:
+                    self.state_machine.transition_to(State.CHATTING)
                 self._phase = "ready"
                 self._publish("session_started", {})
                 self._condition.notify_all()
@@ -217,7 +266,7 @@ class Session:
                 self._stopping = True
                 self._phase = "stopping"
                 stop_event.set()
-                self._pending.clear()
+                self._cancel_pending()
                 self._cancel_current("session_stopped")
                 avatars = list(self._avatars.values())
                 self._avatars.clear()
@@ -231,13 +280,14 @@ class Session:
                 except Exception as exc:
                     self._record_cleanup_error(exc)
             with self._condition:
-                current_state = self.state_machine.state
-                if current_state not in (State.CHATTING, State.TRANSITIONING, State.ENDING, State.IDLE):
-                    self.state_machine.transition_to(State.TRANSITIONING)
-                if self.state_machine.state not in (State.ENDING, State.IDLE):
-                    self.state_machine.transition_to(State.ENDING)
-                if self.state_machine.state == State.ENDING:
-                    self.state_machine.transition_to(State.IDLE)
+                if not self._managed:
+                    current_state = self.state_machine.state
+                    if current_state not in (State.CHATTING, State.TRANSITIONING, State.ENDING, State.IDLE):
+                        self.state_machine.transition_to(State.TRANSITIONING)
+                    if self.state_machine.state not in (State.ENDING, State.IDLE):
+                        self.state_machine.transition_to(State.ENDING)
+                    if self.state_machine.state == State.ENDING:
+                        self.state_machine.transition_to(State.IDLE)
                 self._current = self._cancel = self._output_id = self._speaker = None
                 self._phase = "idle"
                 self._stopping = False
@@ -247,7 +297,8 @@ class Session:
 
     def _run_turn(self, request, generation, stop_event):
         with self._lock:
-            if stop_event.is_set():
+            if stop_event.is_set() or request.scope in self._cancelled_scopes:
+                self._finish_request(request, "cancelled", request.speaker)
                 return
             speaker = request.speaker or self.scheduler.pick_speaker(request.text)
             role = self._roles[speaker]
@@ -359,12 +410,8 @@ class Session:
             self._zero_mouth(speaker, mouth_generation)
             self._current = self._cancel = self._output_id = self._speaker = None
             self._phase = "stopping" if self._stopping else "ready"
-            event_type = "turn_completed" if outcome == "complete" else f"turn_{outcome}"
-            self._publish(event_type, {
-                "request_id": request.request_id, "kind": request.kind,
-                "speaker": speaker, "outcome": outcome,
-                **({"error": self._last_error} if outcome == "failed" else {}),
-            })
+            self._finish_request(request, outcome, speaker,
+                                 self._last_error if outcome == "failed" else None)
             self._condition.notify_all()
 
     def _is_current(self, request, generation, cancel, stop_event):

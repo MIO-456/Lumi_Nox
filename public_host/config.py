@@ -13,6 +13,20 @@ from public_host.providers import ProviderError
 LOCAL_DIR = Path(__file__).resolve().parents[1] / ".local-host"
 
 
+def default_program() -> dict:
+    return {"auto_chat_interval": 5, "gomoku_port": 8791, "stages": [
+        {"id": "opening", "kind": "opening", "title": "开场", "duration": 15,
+         "prompt": "简短欢迎观众来到今天的直播，介绍接下来会聊天和玩五子棋。"},
+        {"id": "chat-1", "kind": "chat", "title": "聊天", "duration": 60,
+         "prompt": "自然地继续直播聊天，提出一个轻松的话题，不要虚构观众留言。"},
+        {"id": "gomoku", "kind": "activity", "title": "五子棋", "duration": 300,
+         "activity": "gomoku"},
+        {"id": "chat-2", "kind": "chat", "title": "聊天", "duration": 60,
+         "prompt": "聊聊刚才的游戏或一个轻松的话题，不要虚构观众留言。"},
+        {"id": "ending", "kind": "ending", "title": "结束", "duration": 15,
+         "prompt": "简短感谢观众并告别，结束这场直播。"}]}
+
+
 def default_config() -> dict:
     def role(name, enabled):
         return {"name": name, "enabled": enabled,
@@ -22,7 +36,8 @@ def default_config() -> dict:
     service = {"provider": "openai-compatible", "base_url": "", "model": "", "api_key": "", "timeout": 30}
     return {"version": 1, "mode": "live", "llm": {**service, "max_tokens": 256, "token_limit_field": "max_tokens"},
             "tts": dict(service), "audio": {"device": None},
-            "roles": [role("示例A", True), role("示例B", False)]}
+            "roles": [role("示例A", True), role("示例B", False)],
+            "program": default_program()}
 
 
 def _text(value, label, limit=2048, *, blank=True):
@@ -110,7 +125,46 @@ def validate_config(data: dict, *, for_start=False) -> dict:
                 raise ProviderError("请填写 VTS 模型 ID，并在 VTS 中加载该模型。")
     if not active_count:
         raise ProviderError("请至少启用一个角色。")
-    return copy.deepcopy(data)
+    result = copy.deepcopy(data)
+    result.setdefault("program", default_program())
+    validate_program(result["program"])
+    return result
+
+
+def validate_program(program, *, roles=None):
+    if not isinstance(program, dict):
+        raise ProviderError("节目单配置格式不正确。")
+    _number(program.get("auto_chat_interval"), 0.1, 600, "自动聊天间隔（秒）")
+    port = program.get("gomoku_port", 8791)
+    if isinstance(port, bool) or not isinstance(port, int) or not 1024 <= port <= 65535:
+        raise ProviderError("五子棋端口应为 1024–65535 的整数。")
+    stages = program.get("stages")
+    if not isinstance(stages, list) or not 2 <= len(stages) <= 50:
+        raise ProviderError("节目单应包含 2–50 个环节。")
+    ids = set()
+    for stage in stages:
+        if not isinstance(stage, dict):
+            raise ProviderError("节目环节格式不正确。")
+        ident = _text(stage.get("id"), "环节标识", 80, blank=False)
+        if ident in ids:
+            raise ProviderError("节目环节标识不能重复。")
+        ids.add(ident)
+        _text(stage.get("title"), "环节名称", 100, blank=False)
+        _number(stage.get("duration"), 0.1, 86400, "环节时长（秒）")
+        kind = stage.get("kind")
+        if kind not in ("opening", "chat", "activity", "ending"):
+            raise ProviderError("节目类型仅支持开场、聊天、活动和结束。")
+        if kind == "activity":
+            if stage.get("activity") != "gomoku":
+                raise ProviderError("当前可运行的活动为五子棋。")
+            if roles is not None and len(roles) != 2:
+                raise ProviderError("五子棋需要启用两个不同角色，请在角色配置中启用第二位角色。")
+        else:
+            _text(stage.get("prompt", ""), "环节提示", 12000, blank=False)
+    if stages[0]["kind"] != "opening" or stages[-1]["kind"] != "ending":
+        raise ProviderError("节目单需以开场开始、以结束收尾。")
+    if any(s["kind"] in ("opening", "ending") for s in stages[1:-1]):
+        raise ProviderError("开场和结束只能位于节目单两端。")
 
 
 def runtime_config(data):
@@ -149,6 +203,9 @@ class ConfigStore:
         if not isinstance(data, dict):
             raise ProviderError("配置应为 JSON 对象。")
         old = self.load()
+        # Older clients know only service/role fields. Their saves must not erase
+        # a rundown configured by a newer control page.
+        data.setdefault("program", copy.deepcopy(old["program"]))
         for name in ("llm", "tts"):
             service = data.get(name)
             if not isinstance(service, dict):

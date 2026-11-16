@@ -4,7 +4,7 @@
     {
       "id": "verify-01",
       "name": "离线基线可重复",
-      "description": "从干净检出开始，用标准库跑通演示、编译与自动检查；允许测试自建的本机 loopback 假服务，不访问真实服务、声卡、VTS 或游戏。",
+      "description": "从干净检出开始，用标准库跑通演示、编译与基础自动检查；允许测试自建的本机 loopback 假服务，不访问真实服务、声卡、VTS 或商业游戏。安装 aiohttp 后另验源码自带的五子棋网页和整场流程。",
       "dependencies": [],
       "status": "done",
       "evidence": "历史证据：PR #1 初稿（723f8bc，2026-11-14）记录 python main.py -> '=== demo complete ==='; compileall -> exit 0; unittest -> 'Ran 88 tests ... OK'。当前提交的验证见其 PR / Actions，不以该数量作为固定要求。",
@@ -53,11 +53,21 @@
     {
       "id": "host-01",
       "name": "通用公开对话宿主",
-      "description": "本机配置、1–2个自定义角色、兼容聊天/TTS、播放与取消、可选 VTS 嘴型已公开；游戏、绘画、演唱的活动生命周期尚未统一接通。",
+      "description": "本机配置、1–2个自定义角色、兼容聊天/TTS、播放与取消、可选 VTS 嘴型已公开；手动对话保留，节目与五子棋接线见 host-02。绘画、演唱和其他游戏仍待接入。",
       "dependencies": ["verify-01"],
       "status": "done",
       "evidence": "发布提交 68c5a36；使用与验证边界见 docs/PUBLIC_HOST.md。此里程碑不声称真实云服务、声卡或 Hiyori 已实机验收。",
       "verification": "按公开宿主指南分别记录自动检查、配置和实机验证范围"
+    },
+    {
+      "id": "host-02",
+      "name": "共用节目中控与真实五子棋",
+      "description": "公开中控可运行开场、聊天、网页五子棋与收尾；共用 core/program 的计时、推进、转场及生命周期判断。五子棋使用本地规则算法，网页需 aiohttp；私人平台和设备接线不包含。",
+      "dependencies": ["host-01"],
+      "status": "implemented",
+      "evidence": "候选已实现并通过真实本机五子棋与无声 demo 节目流程检查，具体命令和验证边界以本次交付记录为准。正式导演候选共用调度层，尚未完成正式环境实机推广；不声称真实模型、声卡、VTS 或平台实播已验收。",
+      "verification": "统一检查；安装 aiohttp 后运行五子棋和整场集成测试，并在浏览器核对实际落子、结算、回聊天与结束。真实服务/设备另行验收。",
+      "scope": "docs/PUBLIC_DIRECTOR.md"
     }
   ]
 }

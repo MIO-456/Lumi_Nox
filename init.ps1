@@ -1,7 +1,7 @@
 # Standard verification entry point (Windows PowerShell 5.1+).
 #   ./init.ps1
 #   ./init.ps1 -Python 'C:\Path With Spaces\python.exe'
-# Checks use no cloud services, audio device, or game. Tests may use loopback.
+# No cloud services, audio device or commercial game. Local Gomoku may use loopback.
 [CmdletBinding()]
 param(
     [string]$Python = $env:PYTHON

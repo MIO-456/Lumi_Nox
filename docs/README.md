@@ -26,6 +26,7 @@ L4  验证      init.sh / init.ps1   —         编译 + 测试 + 文档体检
 | [../AGENTS.md](../AGENTS.md) | 项目是什么、红线、该读哪篇 | 每次会话开始 | 硬约束或入口结构变化 |
 | [GETTING_STARTED.md](GETTING_STARTED.md) | 怎么从零跑通无声演示 | 第一次接触仓库 | 入口命令变化 |
 | [PUBLIC_HOST.md](PUBLIC_HOST.md) | 通用宿主的配置、对话、语音与取消怎么运行 | 接自己的角色和服务 | 宿主能力或协议变化 |
+| [PUBLIC_DIRECTOR.md](PUBLIC_DIRECTOR.md) | 如何运行节目单、真实五子棋、切段和收尾 | 测试完整节目或接活动 | 节目时序或生命周期变化 |
 | [VTS_EXAMPLE.md](VTS_EXAMPLE.md) | 如何用 Hiyori / 自有模型验证可选 VTS 嘴型 | 准备接皮套 | 授权、模型适配或许可说明变化 |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 怎么装依赖、配密钥、跑真实模块 | 要接模型 / 语音 / 游戏 | 依赖或 `.env` 变化 |
 | [TESTING.md](TESTING.md) | 测试怎么组织、什么算验证通过 | 写或改测试 | 测试目录或 CI 变化 |

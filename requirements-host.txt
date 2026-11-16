@@ -1,3 +1,4 @@
-# Minimal optional dependencies for the public host; demo/config UI need none.
+# Optional host dependencies; manual demo/config UI need none. Gomoku needs aiohttp.
 sounddevice>=0.4.6,<1
 websockets>=12,<16
+aiohttp>=3.9,<4
