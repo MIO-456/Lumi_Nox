@@ -9,7 +9,7 @@ Lumi 与 Nox 是两位 AI 虚拟主播，共同主持一场直播。本仓库是
 
 - 运行时：Python，**3.12 为 CI 验证基线**
 - 入口：`python -m public_host`（本机配置与运行台）、`main.py`（零依赖终端演示）、`python -m examples.prototype_contracts`、各游戏独立入口。
-- 手动对话 demo 只用标准库；UI 默认节目模式，零依赖上手需主动选“手动对话”。五子棋网页需 aiohttp，真实声音/VTS 依赖 `requirements-host.txt`。其他游戏、ASR、B 站与 OBS 自动控制尚未接入。
+- WebUI 首屏为本地虚拟直播间；“体验聊天”只用标准库，“体验完整节目”的五子棋需 aiohttp。临时演示不覆盖保存配置；真实声音/VTS 依赖 `requirements-host.txt`。其他游戏、ASR、B 站与 OBS 自动控制尚未接入。
 
 ## 2. 确认基线
 

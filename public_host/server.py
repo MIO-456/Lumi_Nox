@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import importlib.util
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
@@ -50,7 +51,9 @@ class HostApp:
             result = self.session.snapshot() if self.session else {
                 "running": False, "stopping": False, "phase": "idle", "state": "IDLE", "state_metadata": {},
                 "speaker": None, "next_speaker": None, "queue_size": 0,
-                "last_error": "", "last_outcome": "", "messages": [], "events": []}
+                "last_error": "", "last_outcome": "", "messages": [], "events": [],
+                "run_id": "", "mode": None, "roles": [], "requests": [],
+                "current_request": None, "audio_level": 0.0, "event_seq": 0}
             result.update(operation=copy.deepcopy(self._job), preview=self.preview,
                           run_mode=self.run_mode, program=self.program.snapshot() if self.program else None)
             return result
@@ -70,16 +73,31 @@ class HostApp:
         self.session.start()
         return self.session
 
-    def start(self, run_mode="manual"):
+    @staticmethod
+    def capabilities():
+        return {"gomoku": importlib.util.find_spec("aiohttp") is not None}
+
+    def require_run(self, run_id):
+        if run_id is not None and run_id != self.status().get("run_id"):
+            raise HostBusy("运行已改变，请刷新状态后重试。")
+
+    def start_demo(self, run_mode="manual"):
+        from public_host.demo import demo_config
+        return self.start(run_mode, config=demo_config(with_game=run_mode == "program"))
+
+    def start(self, run_mode="manual", *, config=None):
         with self.lock:
             self._require_idle()
             if run_mode not in ("manual", "program"):
                 raise ProviderError("运行方式应为手动会话或节目单。")
-            config = runtime_config(self.store.load())
+            config = runtime_config(self.store.load()) if config is None else copy.deepcopy(config)
             if run_mode == "program":
                 validate_program(config["program"], roles=config["roles"])
                 if config["program"].get("gomoku_port", 8791) == self.control_port:
                     raise ProviderError("五子棋端口不能与运行台端口相同。")
+                if (any(stage.get("activity") == "gomoku" for stage in config["program"]["stages"])
+                        and not self.capabilities()["gomoku"]):
+                    raise ProviderError("五子棋需要 aiohttp，请安装后体验完整节目；也可先体验聊天。")
             self.run_mode, self.program = run_mode, None
             self._new_session(config, managed=run_mode == "program")
             if run_mode == "program":
@@ -269,10 +287,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(self.server.app.status())
             if path == "/api/activities":
                 return self._json({"activities": activity_catalog()})
+            if path == "/api/capabilities":
+                return self._json(self.server.app.capabilities())
             if path == "/api/devices":
                 return self._json({"devices": output_devices()})
             files = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
-                     "/style.css": ("style.css", "text/css")}
+                     "/style.css": ("style.css", "text/css"),
+                     "/room.js": ("room.js", "text/javascript")}
             if path not in files:
                 return self._json({"error": "页面不存在。"}, 404)
             filename, kind = files[path]
@@ -305,18 +326,22 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(data, dict):
                 raise ProviderError("请求格式不正确。")
             app, path = self.server.app, urlsplit(self.path).path
-            if path == "/api/config": result = app.save(data)
-            elif path == "/api/start": result = app.start(data.get("run_mode", "manual"))
-            elif path == "/api/next": result = app.next()
-            elif path == "/api/end": result = app.end()
-            elif path == "/api/stop": result = app.stop()
-            elif path == "/api/interrupt": result = app.interrupt()
-            elif path == "/api/chat": result = app.submit(data.get("text"), data.get("speaker"))
-            elif path == "/api/say": result = app.submit(data.get("text"), data.get("speaker"), speech=True)
-            elif path == "/api/probe-chat": result = app.probe_chat()
-            elif path == "/api/preview": result = app.preview_speech(data.get("speaker"))
-            elif path == "/api/avatar": result = app.discover_avatar(data.get("speaker"), authorize=data.get("authorize") is True)
-            else: return self._json({"error": "操作不存在。"}, 404)
+            with app.lock:
+                if path in ("/api/next", "/api/end", "/api/stop", "/api/interrupt", "/api/chat", "/api/say"):
+                    app.require_run(data.get("run_id"))
+                if path == "/api/config": result = app.save(data)
+                elif path == "/api/start": result = app.start(data.get("run_mode", "manual"))
+                elif path == "/api/demo": result = app.start_demo(data.get("run_mode", "manual"))
+                elif path == "/api/next": result = app.next()
+                elif path == "/api/end": result = app.end()
+                elif path == "/api/stop": result = app.stop()
+                elif path == "/api/interrupt": result = app.interrupt()
+                elif path == "/api/chat": result = app.submit(data.get("text"), data.get("speaker"))
+                elif path == "/api/say": result = app.submit(data.get("text"), data.get("speaker"), speech=True)
+                elif path == "/api/probe-chat": result = app.probe_chat()
+                elif path == "/api/preview": result = app.preview_speech(data.get("speaker"))
+                elif path == "/api/avatar": result = app.discover_avatar(data.get("speaker"), authorize=data.get("authorize") is True)
+                else: return self._json({"error": "操作不存在。"}, 404)
             self._json(result)
         except HostBusy as exc:
             self._json({"error": str(exc)}, 409)

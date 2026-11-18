@@ -25,7 +25,7 @@ L4  验证      init.sh / init.ps1   —         编译 + 测试 + 文档体检
 |---|---|---|---|
 | [../AGENTS.md](../AGENTS.md) | 项目是什么、红线、该读哪篇 | 每次会话开始 | 硬约束或入口结构变化 |
 | [GETTING_STARTED.md](GETTING_STARTED.md) | 怎么从零跑通无声演示 | 第一次接触仓库 | 入口命令变化 |
-| [PUBLIC_HOST.md](PUBLIC_HOST.md) | 通用宿主的配置、对话、语音与取消怎么运行 | 接自己的角色和服务 | 宿主能力或协议变化 |
+| [PUBLIC_HOST.md](PUBLIC_HOST.md) | 本地虚拟直播间、临时演示、服务配置与请求轨迹怎么运行 | 体验舞台或接自己的角色和服务 | 宿主能力或协议变化 |
 | [PUBLIC_DIRECTOR.md](PUBLIC_DIRECTOR.md) | 如何运行节目单、真实五子棋、切段和收尾 | 测试完整节目或接活动 | 节目时序或生命周期变化 |
 | [VTS_EXAMPLE.md](VTS_EXAMPLE.md) | 如何用 Hiyori / 自有模型验证可选 VTS 嘴型 | 准备接皮套 | 授权、模型适配或许可说明变化 |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 怎么装依赖、配密钥、跑真实模块 | 要接模型 / 语音 / 游戏 | 依赖或 `.env` 变化 |
@@ -40,6 +40,7 @@ L4  验证      init.sh / init.ps1   —         编译 + 测试 + 文档体检
 | [games/](games/) | Kingdom Rush 逆向、Terraria 行为树的细节 | 改对应游戏桥 | 游戏版本或桥协议变化 |
 | [releases/](releases/) | 每个公开版本改了什么 | 追溯某版本的行为 | 发布新版本 |
 | [issue-drafts/](issue-drafts/) | 尚未发布的 Issue 正文草稿 | 维护者准备提 Issue | Issue 发布后归档 |
+| [本地虚拟直播间工程计划](plans/2026-11-16-gitnexus-plan-local-virtual-live-room.md) | 舞台、请求观测与临时演示的实现范围和验证计划 | 追溯本地直播间设计 | 实现或验证范围变化 |
 
 面向非贡献者读者的入口仍是 [README.md](../README.md)（中文）与 [README.en.md](../README.en.md)（英文）；它们面向使用者，不是 agent 指令。
 

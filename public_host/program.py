@@ -63,6 +63,7 @@ class Program:
         self._error = ""
         self._blocked = False
         self._events = deque(maxlen=200)
+        self._event_seq = 0
         self._speech = {}
         self._stage_request = None
         self._auto_request = None
@@ -112,8 +113,11 @@ class Program:
             result = {"running": bool(self._thread and self._thread.is_alive()),
                       "blocked": self._blocked, "phase": self._phase,
                       "stage_index": self._index, "stage": deepcopy(stage),
+                      "stages": [{"id": s["id"], "title": s["title"], "kind": s["kind"]}
+                                 for s in self.settings["stages"]],
                       "remaining_seconds": clock["remaining_sec"],
                       "last_error": self._error, "events": deepcopy(list(self._events)),
+                      "event_seq": self._event_seq,
                       "activity": {}}
             activity = self._activity
         if activity:
@@ -129,7 +133,9 @@ class Program:
 
     def _record(self, kind, **data):
         with self._lock:
-            self._events.append({"event_type": kind, "data": data, "timestamp": time.time()})
+            self._event_seq += 1
+            self._events.append({"seq": self._event_seq, "event_type": kind,
+                                 "data": data, "timestamp": time.time()})
 
     def _check(self):
         if self._stop.is_set():

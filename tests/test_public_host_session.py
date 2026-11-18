@@ -117,6 +117,61 @@ class FakeAvatar:
 
 
 class PublicHostSessionTests(unittest.TestCase):
+    def test_trace_exposes_pending_and_preplay_text_then_clears_on_interrupt(self):
+        synthesis = Step(object(), held=True)
+        session, providers = self.make_session(Providers(synth=[synthesis]))
+        request = session.submit_text("visible input", source="manual")
+        self.assertTrue(synthesis.entered.wait(WAIT))
+        queued = session.submit_text("waiting input")
+        snapshot = session.snapshot()
+        self.assertTrue(snapshot["run_id"])
+        self.assertEqual(snapshot["current_request"]["text"], "Example reply")
+        self.assertEqual(snapshot["current_request"]["phase"], "synthesizing")
+        self.assertEqual(snapshot["messages"], [])
+        pending = next(r for r in snapshot["requests"] if r["request_id"] == queued)
+        self.assertEqual((pending["input"], pending["phase"]), ("waiting input", "queued"))
+        session.interrupt()
+        current = session.snapshot()["current_request"]
+        self.assertEqual((current["phase"], current["text"]), ("cancelling", ""))
+        synthesis.release.set()
+        self.wait_for(lambda: session.result(queued))
+        cancelled = next(r for r in session.snapshot()["requests"] if r["request_id"] == request)
+        self.assertEqual(cancelled["outcome"], "cancelled")
+        self.assertEqual(cancelled["text"], "")
+        self.assertIn("generating", cancelled["timings"])
+        self.assertEqual(len(providers.calls["player"]), 1)
+        self.assertEqual(session.snapshot()["audio_level"], 0)
+        events = session.snapshot()["events"]
+        self.assertEqual([e["seq"] for e in events], sorted({e["seq"] for e in events}))
+        self.assertTrue(all(e["run_id"] == snapshot["run_id"] for e in events))
+
+    def test_audio_level_is_sampled_and_late_callbacks_cannot_revive_it(self):
+        playback = Step("complete", held=True)
+        session, providers = self.make_session(Providers(player=[playback]))
+        request = session.submit_text("level sample")
+        self.assertTrue(playback.entered.wait(WAIT))
+        callback = providers.calls["player"][0]["on_level"]
+        callback(0.6)
+        self.assertEqual(session.snapshot()["audio_level"], 0.6)
+        session.interrupt()
+        self.assertEqual(session.snapshot()["audio_level"], 0)
+        self.assertFalse(callback(0.9))
+        playback.release.set()
+        self.wait_for(lambda: session.result(request))
+        self.assertEqual(session.snapshot()["audio_level"], 0)
+
+    def test_restart_rotates_run_id_and_clears_display_trace(self):
+        session, _ = self.make_session()
+        request = session.submit_text("first run")
+        self.wait_for(lambda: session.result(request))
+        before = session.snapshot()["run_id"]
+        session.stop()
+        self.wait_for(lambda: not session.snapshot()["running"])
+        session.start()
+        self.wait_for(lambda: session.snapshot()["phase"] == "ready")
+        self.assertNotEqual(session.snapshot()["run_id"], before)
+        self.assertEqual(session.snapshot()["requests"], [])
+
     def test_retired_scope_cancels_current_queue_and_rejects_late_callbacks(self):
         held = Step("Late reply", held=True)
         session, providers = self.make_session(Providers(chat=[held]))

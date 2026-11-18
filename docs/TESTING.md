@@ -25,10 +25,12 @@
 | `test_terraria_package.py` | mod 源码完整、焦点复位、协议版本 | 源码静态检查 |
 | `test_game_refresh_word_solvers.py` | 求解器工作量上限 | 固定采样 |
 | `test_public_host_services.py` | 本机配置、服务协议、WAV 与播放结果 | 临时配置、本机假 HTTP 服务、假声卡 |
-| `test_public_host_session.py` | 角色轮换、取消、历史与完成事件 | 假模型、合成器、播放器与皮套 |
+| `test_public_host_session.py` | 角色轮换、取消、历史与完成事件；入队/合成前后文本、取消清屏、事件序号与新场轨迹重置 | 假模型、合成器、播放器与皮套 |
+| `test_public_host_telemetry.py` | 请求阶段耗时、已结束记录淘汰与活动请求保留、终态后拒绝迟到更新 | 可注入时钟、内存请求记录 |
 | `test_public_host_avatar.py` | VTS 授权、模型核对、嘴型与清理 | 假 WebSocket，不使用真实 token |
-| `test_public_host_server.py` | 本机 HTTP、配置脱敏、运行互斥与试听收尾 | 临时 HTTP 服务、假模型与播放器 |
+| `test_public_host_server.py` | 本机 HTTP、配置脱敏、运行互斥与试听收尾；临时 demo 配置隔离、五子棋依赖预检、运行 ID 过期返回 409 | 临时 HTTP 服务、假模型与播放器 |
 | `test_repo_verification.py` | 文档检查和验证脚本的行为 | 临时文件、脚本子进程与静态检查 |
+| `test_public_room.js` | 舞台初始化、字幕与取消、断线、单角色、棋盘更新、输入与导出白名单 | Node 内置测试与轻量 DOM 替身，无浏览器或第三方依赖 |
 
 定位方式：先按"改的是哪个子系统"选文件；纯调度 / 仲裁的回归放 `test_core_refresh.py`，跨模块的公开行为放 `test_public_core.py`。
 
@@ -38,6 +40,9 @@
 python -m unittest discover -s tests -v          # 全量（-v 便于看用例名）
 python -m unittest discover -s tests -p test_core_refresh.py -v  # 单个文件
 python -m compileall -q .                        # 编译检查，无输出即通过
+node --test tests/test_public_room.js             # 改动直播间前端时另跑（Node 18+）
+node --check public_host/web/app.js
+node --check public_host/web/room.js
 ```
 
 `test_public_core.py` 会实际运行 `main.py`。也可用 `./init.ps1` 或 `bash ./init.sh` 汇总编译、文档和测试检查；脚本不安装依赖、不填真实配置。开发中先跑针对性检查，交付前按改动范围完成必要检查，已经通过且代码未变时不必反复全量运行。
@@ -60,6 +65,8 @@ python -m compileall -q .                        # 编译检查，无输出即�
 | "只改文档" | `python scripts/check_docs.py` 通过，并人工核对命令、描述与代码一致；行数提示不等于错误 |
 | "演示可跑" | `python main.py` 输出到 `=== demo complete ===` |
 | "语音 / VTS / 游戏链路可用" | **上述自动检查无法证明**——需要另行安排真实服务或设备验收，并说明环境与实际覆盖范围 |
+
+本地虚拟直播间还需单独记录浏览器检查：体验聊天的双角色、状态字幕与观众输入；打断/停止清屏；刷新和双页恢复同一运行；完整节目的同屏五子棋与返回聊天；窄窗口和断线恢复。调试记录应可区分请求轨迹与完成历史，导出只含元数据、不含文本/配置/Key，默认记录仅在内存中有界保留。这是验收清单，不能从 Python 测试推断浏览器已经通过。真实音频仍由 Python 单播放器输出；SVG 舞台不验证 Live2D 渲染或 VTS 视频捕获。
 
 不要用“测试通过”代替真实链路验收。遇到基线失败先记录提交、命令和错误，判断是否与本次改动有关；无关的既有问题或环境限制不要求贡献者顺手全部修复，也不能掩盖失败或自动回退其他人的工作。
 
